@@ -1,0 +1,11 @@
+{
+  "provenance": "recorded",
+  "recordedAt": "2026-10-12T19:42:52Z",
+  "status": 401,
+  "headers": {
+    "Content-Type": "application/problem+json; charset=utf-8",
+    "X-Tarjim-Api-Version": "2026-07-29",
+    "ETag": "W/\"8b-g8RSYtBz6d+5JGC34eDn7FNENXs\""
+  },
+  "body": "{\"type\":\"https://api.tarjim.io/problems/unauthorized\",\"title\":\"Unauthorized\",\"status\":401,\"detail\":\"Invalid API key\",\"code\":\"unauthorized\"}"
+}

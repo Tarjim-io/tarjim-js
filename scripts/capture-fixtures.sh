@@ -171,6 +171,14 @@ fetch() {
   curl "${args[@]}"
 }
 
+# problem_code <body-file>  -> " (<code>)" for a problem+json body, else nothing
+problem_code() {
+  local code
+  if code="$(jq -er '.code | strings' <"$1" 2>/dev/null)"; then
+    printf ' (%s)' "$code"
+  fi
+}
+
 # Content-Encoding is not kept: bodies are stored decoded.
 keep_headers='["Content-Type","Cache-Control","ETag","Retry-After","X-Tarjim-Api-Version"]'
 
@@ -195,7 +203,7 @@ meta_base="${delivery_url%/*}/"
 
 status="$(fetch "$meta_url" "$work/meta.body" "$work/meta.hdr" "$key_headers")"
 if [[ "$status" != "200" ]]; then
-  fail "meta answered $status, expected 200"
+  fail "meta answered $status$(problem_code "$work/meta.body"), expected 200"
 fi
 
 # A failing jq aborts the run: command substitution in an assignment propagates its status.
@@ -232,7 +240,7 @@ fi
 
 status="$(fetch "$manifest_url" "$stage/manifest.json" "$work/manifest.hdr" "$asset_headers")"
 if [[ "$status" != "200" ]]; then
-  fail "manifest answered $status, expected 200"
+  fail "manifest answered $status$(problem_code "$stage/manifest.json"), expected 200"
 fi
 if [[ "$(sha256 "$stage/manifest.json")" != "$checksum" ]]; then
   fail "manifest sha256 does not match meta.checksum"
@@ -252,7 +260,7 @@ while read -r hash file_type; do
   fi
   status="$(fetch "$url" "$stage/objects/$object" "$work/object.hdr" "$asset_headers")"
   if [[ "$status" != "200" ]]; then
-    fail "object $object answered $status, expected 200"
+    fail "object $object answered $status$(problem_code "$stage/objects/$object"), expected 200"
   fi
   if [[ "$(sha256 "$stage/objects/$object")" != "$hash" ]]; then
     fail "object $object does not match its manifest hash"
@@ -266,7 +274,7 @@ tenant_id="$(sed -E 's#^.*/t/([0-9]+)/projects/.*$#\1#' <<<"$delivery_url")"
 project_id="$(sed -E 's#^.*/projects/([0-9]+)/delivery/meta$#\1#' <<<"$delivery_url")"
 jq -ec --arg t "$tenant_id" --arg p "$project_id" '
   def redact_host: if test("^[A-Za-z][A-Za-z0-9+.-]*://") then sub("^(?<s>[A-Za-z][A-Za-z0-9+.-]*://)[^/]+"; "\(.s)cdn.example.invalid") else . end;
-  def redact_ids: gsub("/t/\($t)/"; "/t/1/") | gsub("/projects/\($p)/"; "/projects/1/") | gsub("/releases/\($t)/\($p)/"; "/releases/1/1/");
+  def redact_ids: gsub("/t/\($t)/"; "/t/1/") | gsub("/projects/\($p)/"; "/projects/1/") | gsub("/\($t)/\($p)/"; "/1/1/");
   .manifestUrl |= (redact_host | redact_ids)
   | .slicesBaseUrl |= (redact_host | redact_ids)
   | if has("projectId") then .projectId = 1 else . end
@@ -274,6 +282,11 @@ jq -ec --arg t "$tenant_id" --arg p "$project_id" '
 ' <"$work/meta.body" | tr -d '\n' >"$work/meta.redacted"
 if grep -qE "Signature=[^R]|Key-Pair-Id=[^R]" "$work/meta.redacted"; then
   fail "the scrubbed meta still carries a signature"
+fi
+# CDN paths differ by delivery mode (`releases/<t>/<p>/`, `builds/<t>/<p>/`); a form the rewrite
+# does not know must stop the capture, not reach a public fixture.
+if jq -r '.manifestUrl, .slicesBaseUrl' <"$work/meta.redacted" | grep -qE "/(t/)?${tenant_id}/(projects/)?${project_id}/"; then
+  fail "the scrubbed meta still carries the real tenant and project ids"
 fi
 write_envelope 200 "$work/meta.hdr" "$work/meta.redacted" "$stage/meta.$mode.json"
 
