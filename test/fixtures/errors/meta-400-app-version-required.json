@@ -1,0 +1,9 @@
+{
+  "provenance": "hand-built",
+  "status": 400,
+  "headers": {
+    "Content-Type": "application/problem+json; charset=utf-8",
+    "X-Tarjim-Api-Version": "2026-07-29"
+  },
+  "body": "{\"type\":\"https://api.tarjim.io/problems/delivery.app_version_required\",\"title\":\"Bad Request\",\"status\":400,\"detail\":\"appVersion must be a MAJOR.MINOR.PATCH version\",\"code\":\"delivery.app_version_required\"}"
+}

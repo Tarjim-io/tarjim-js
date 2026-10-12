@@ -1,0 +1,10 @@
+{
+  "provenance": "source-read",
+  "note": "The CORS options the API applies to the delivery routes, read from the server source. Replace with a recording of a live preflight once one is made.",
+  "origin": "*",
+  "credentials": false,
+  "methods": ["GET", "HEAD", "OPTIONS"],
+  "allowedHeaders": ["Authorization", "X-Tarjim-Apikey", "X-Tarjim-Api-Version", "If-None-Match"],
+  "exposedHeaders": ["ETag", "Retry-After"],
+  "maxAge": 7200
+}
