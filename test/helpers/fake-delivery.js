@@ -81,11 +81,14 @@ function createFetchFake(resolve, hooks = []) {
     const nth = counts.get(countKey) ?? 0;
     counts.set(countKey, nth + 1);
 
+    // Every hook runs, so one that only has a side effect still fires after another has answered.
+    let answer;
     for (const hook of hooks) {
       const result = await hook({ url, init, kind, name, nth, requests });
-      if (result instanceof Error) throw result;
-      if (result instanceof Response) return result;
+      if (answer === undefined && (result instanceof Error || result instanceof Response)) answer = result;
     }
+    if (answer instanceof Error) throw answer;
+    if (answer instanceof Response) return answer;
     if (!target) return problem(404, 'delivery.not_found');
     return target.answer();
   }
