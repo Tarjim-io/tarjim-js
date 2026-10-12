@@ -7,7 +7,8 @@ import { describe, expect, it } from 'vitest';
 const FIXTURES = fileURLToPath(new URL('./fixtures', import.meta.url));
 
 function walk(dir) {
-  return readdirSync(dir).flatMap((name) => {
+  // Dotfiles (.DS_Store) are never committed; they must not fail a local run.
+  return readdirSync(dir).filter((name) => !name.startsWith('.')).flatMap((name) => {
     const path = join(dir, name);
     return statSync(path).isDirectory() ? walk(path) : [path];
   });
@@ -24,7 +25,11 @@ const LEAKS = [
   ['a CloudFront policy', /Policy=(?!REDACTED)/],
   ['a CloudFront key pair id', /Key-Pair-Id=(?!REDACTED)/],
   ['an amazonaws or cloudfront host', /amazonaws\.com|cloudfront\.net/],
+  ['an internal ticket id', /\bTJ-\d+/],
 ];
+
+// Any scheme-relative authority, also JSON-escaped (`https:\/\/host`) or protocol-relative (`//host`).
+const HOST = /(?:^|[^A-Za-z0-9:\\/])(?:[a-z][a-z0-9+.-]*:)?(?:\\?\/){2}([A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+)/gi;
 
 describe('fixtures', () => {
   const files = walk(FIXTURES);
@@ -36,7 +41,7 @@ describe('fixtures', () => {
       for (const [what, pattern] of LEAKS) {
         if (pattern.test(text)) found.push(`${relative(FIXTURES, file)}: ${what}`);
       }
-      for (const [, host] of text.matchAll(/https?:\/\/([A-Za-z0-9.-]+)/g)) {
+      for (const [, host] of text.matchAll(HOST)) {
         if (!ALLOWED_HOST.test(host)) found.push(`${relative(FIXTURES, file)}: host ${host}`);
       }
     }
@@ -83,6 +88,7 @@ describe('fixtures', () => {
     for (const object of listed) {
       expect(sha256(readFileSync(join(dir, 'objects', object))), object).toBe(object.split('.')[0]);
     }
-    expect(new Set(readdirSync(join(dir, 'objects')))).toEqual(listed);
+    const stored = readdirSync(join(dir, 'objects')).filter((n) => !n.startsWith('.'));
+    expect(new Set(stored)).toEqual(listed);
   });
 });
