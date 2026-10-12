@@ -114,8 +114,9 @@
   // ---------------------------------------------------------------------------------------------
   // Requests
 
-  // Resolves to { ok, status, bytes, response }; ok is false when no usable answer came back at all.
-  // A redirect is never followed: it would carry the key to another host.
+  // Resolves to { ok, status, bytes }; ok is false when no usable answer came back at all (a
+  // network error, a timeout or a redirect). A redirect is never followed: it would carry the key
+  // to another host.
   async function send(fetchFunction, url, headers) {
     var controller = new AbortController();
     var timer = setTimeout(function () {
@@ -238,6 +239,16 @@
   // ---------------------------------------------------------------------------------------------
   // Formatting
 
+  var NAMED_PLACEHOLDER = /\{([^{}]+)\}/y;
+  var LEGACY_PLACEHOLDER = /%%([^%\s]+)%%/y;
+  var PRINTF_PLACEHOLDER = /%(?:(\d+)\$)?([sd@])/y;
+
+  // Sticky patterns match only at the given position, so no copy of the rest of the text is made.
+  function matchAt(pattern, text, position) {
+    pattern.lastIndex = position;
+    return pattern.exec(text);
+  }
+
   // One left-to-right scan; what is inserted is never scanned again.
   //   {name}            object arguments
   //   %s %d %@ %1$s     positional arguments (printf style); %% is a literal percent sign
@@ -254,25 +265,25 @@
     var next = 0;
     var i = 0;
     while (i < text.length) {
-      var rest = text.slice(i);
+      var char = text.charAt(i);
       var match;
-      if (rest.charAt(0) === '{' && named && (match = /^\{([^{}]+)\}/.exec(rest)) && has(named, match[1])) {
+      if (char === '{' && named && (match = matchAt(NAMED_PLACEHOLDER, text, i)) && has(named, match[1])) {
         out += String(named[match[1]]);
         i += match[0].length;
-      } else if (rest.charAt(0) === '%') {
-        if (options.legacy && named && (match = /^%%([^%\s]+)%%/.exec(rest)) && has(named, match[1])) {
+      } else if (char === '%') {
+        if (options.legacy && named && (match = matchAt(LEGACY_PLACEHOLDER, text, i)) && has(named, match[1])) {
           out += String(named[match[1]]);
           i += match[0].length;
         } else if (!positional) {
           // Object arguments leave percent signs alone outside the plural rule.
           out += '%';
           i += 1;
-        } else if ((match = /^%(?:(\d+)\$)?([sd@])/.exec(rest))) {
+        } else if ((match = matchAt(PRINTF_PLACEHOLDER, text, i))) {
           var index = match[1] ? Number(match[1]) - 1 : countOnly ? 0 : next++;
-          if (positional && index >= 0 && index < positional.length) out += String(positional[index]);
+          if (index >= 0 && index < positional.length) out += String(positional[index]);
           else out += match[0];
           i += match[0].length;
-        } else if (rest.charAt(1) === '%') {
+        } else if (text.charAt(i + 1) === '%') {
           out += '%';
           i += 2;
         } else {
@@ -280,7 +291,7 @@
           i += 1;
         }
       } else {
-        out += rest.charAt(0);
+        out += char;
         i += 1;
       }
     }
@@ -531,7 +542,8 @@
     });
   }
 
-  // Reads and checks the meta document for a language; null (after reporting) when unusable.
+  // Reads and checks the meta document for a language; null when it is unusable. Everything but a
+  // stage with no release yet is reported.
   async function readMeta(session, language) {
     var answer = await send(session.fetch, session.metaUrl + encodeURIComponent(language), session.keyHeaders);
     if (!answer.ok) {
@@ -638,8 +650,8 @@
     return slots;
   }
 
-  // Fetches, verifies and decodes the given slots. Returns the ones that failed in a way a fresh
-  // signature could fix (CDN mode only).
+  // Fetches, verifies and decodes the given slots. Returns the ones that were refused or could not
+  // be reached; only in CDN mode can a fresh signature fix those.
   async function fetchSlots(session, slots, signedQuery) {
     var results = await Promise.all(
       slots.map(function (slot) {
