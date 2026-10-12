@@ -331,3 +331,57 @@ describe('object failures in origin mode', () => {
     expect(client.t('extra.key', undefined, { bundle: EXTRAS })).toBe('extra.key');
   });
 });
+
+describe('every slot that cannot be loaded is reported', () => {
+  const failures = [
+    ['a 500', () => respond(500, 'oops')],
+    ['a 429', () => problem(429, 'delivery.rate_limited')],
+    ['a network error', () => new TypeError('Failed to fetch')],
+  ];
+
+  describe.each(['cdn', 'origin'])('in %s mode', (mode) => {
+    it.each(failures)('reports object-unavailable for %s on a slice', async (_, answer) => {
+      const release = basicRelease({ mode, hooks: [({ kind }) => (kind === 'object' ? answer() : undefined)] });
+      const { client, codes } = await startClient(release);
+      expect(client.active).toBe(false);
+      expect(client.t('app.title')).toBe('app.title');
+      expect(codes()).toEqual(['object-unavailable']);
+    });
+  });
+
+  describe.each([
+    ['cdn', 'https://[bad/'],
+    ['origin', 'http://[bad/'],
+  ])('a slice address that is not a URL in %s mode', (mode, slicesBaseUrl) => {
+    it('reports meta-invalid, still resolves and fetches no slice', async () => {
+      const release = basicRelease({ mode, metaOverrides: { slicesBaseUrl } });
+      const { client, reports } = await startClient(release);
+      expect(client.active).toBe(false);
+      expect(reports.map((report) => report.code)).toEqual(['meta-invalid']);
+      expect(release.requests).toHaveLength(2);
+    });
+  });
+
+  it.each([
+    ['cdn', 'http://[bad/manifest.json'],
+    ['cdn', 'http://cdn.example.invalid/manifest.json'],
+    ['origin', 'http://[bad/manifest.json'],
+  ])('reports meta-invalid for a manifest address that is unusable in %s mode (%s)', async (mode, manifestUrl) => {
+    const release = basicRelease({ mode, metaOverrides: { manifestUrl } });
+    const { client, codes } = await startClient(release);
+    expect(client.active).toBe(false);
+    expect(codes()).toEqual(['meta-invalid']);
+    expect(release.requests).toHaveLength(1);
+  });
+
+  it('reports meta-invalid and sends no request to another origin in origin mode', async () => {
+    const elsewhere = 'https://elsewhere.example.invalid/';
+    for (const overrides of [{ manifestUrl: `${elsewhere}manifest.json` }, { slicesBaseUrl: `${elsewhere}slices/` }]) {
+      const release = basicRelease({ mode: 'origin', metaOverrides: overrides });
+      const { client, codes } = await startClient(release);
+      expect(client.active).toBe(false);
+      expect(codes()).toEqual(['meta-invalid']);
+      for (const { url } of release.requests) expect(url.startsWith('https://delivery.example.invalid/')).toBe(true);
+    }
+  });
+});

@@ -563,21 +563,31 @@
   }
 
   // Origin mode: URLs are relative to the delivery URL and need the key. CDN mode: URLs are
-  // absolute and signed, and are fetched as plain GETs with no custom header.
+  // absolute and signed, and are fetched as plain GETs with no custom header. Returns null for an
+  // address that cannot be used.
   function objectRequest(session, reference, signedQuery) {
-    if (session.origin) {
-      var url = new URL(reference, session.config.deliveryUrl);
-      // The key must never be sent to a host other than the one that issued the meta document.
-      if (url.origin !== new URL(session.config.deliveryUrl).origin) return null;
-      return { url: url.href, headers: session.keyHeaders };
+    try {
+      if (session.origin) {
+        var url = new URL(reference, session.config.deliveryUrl);
+        // The key must never be sent to a host other than the one that issued the meta document.
+        if (url.origin !== new URL(session.config.deliveryUrl).origin) return null;
+        return { url: url.href, headers: session.keyHeaders };
+      }
+      if (reference.indexOf('https://') !== 0) return null;
+      new URL(reference);
+      return { url: reference + '?' + signedQuery, headers: null };
+    } catch (e) {
+      return null;
     }
-    if (reference.indexOf('https://') !== 0) return null;
-    return { url: reference + '?' + signedQuery, headers: null };
   }
 
   async function readManifest(session) {
     var request = objectRequest(session, session.meta.manifestUrl, session.meta.signedQuery);
-    var answer = request ? await send(session.fetch, request.url, request.headers) : { ok: false };
+    if (!request) {
+      session.report('meta-invalid', 'The manifest address in the meta document is not usable');
+      return null;
+    }
+    var answer = await send(session.fetch, request.url, request.headers);
     if (!answer.ok || answer.status !== 200) {
       session.report('network', 'The manifest request failed');
       return null;
@@ -632,9 +642,16 @@
 
   async function fetchSlot(session, slot, signedQuery) {
     var request = objectRequest(session, session.meta.slicesBaseUrl + slot.file.hash + '.json', signedQuery);
-    var answer = request ? await send(session.fetch, request.url, request.headers) : { ok: false };
+    if (!request) {
+      session.report('meta-invalid', 'The slice address in the meta document is not usable');
+      return 'failed';
+    }
+    var answer = await send(session.fetch, request.url, request.headers);
     if (!answer.ok || [403, 404, 503].indexOf(answer.status) !== -1) return 'retry';
-    if (answer.status !== 200) return 'failed';
+    if (answer.status !== 200) {
+      session.report('object-unavailable', 'A slice could not be fetched');
+      return 'failed';
+    }
 
     var intact = answer.bytes.length === slot.file.size && (await sha256Hex(answer.bytes)) === slot.file.hash;
     if (!intact) {
