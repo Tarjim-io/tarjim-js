@@ -168,12 +168,20 @@
     return null;
   }
 
+  // Only the JSON file is ever used, so a locale listed with no JSON file cannot be selected.
+  function jsonFile(manifest, bundleId, locale) {
+    var perLocale = manifest.slices[bundleId];
+    var files = isObject(perLocale) ? perLocale[locale] : null;
+    var file = isObject(files) ? files.json : null;
+    return isObject(file) && typeof file.hash === 'string' ? file : null;
+  }
+
   function manifestLocales(manifest) {
     var seen = [];
     Object.keys(manifest.slices).forEach(function (bundleId) {
       if (!isObject(manifest.slices[bundleId])) return;
       Object.keys(manifest.slices[bundleId]).forEach(function (locale) {
-        if (seen.indexOf(locale) === -1) seen.push(locale);
+        if (seen.indexOf(locale) === -1 && jsonFile(manifest, bundleId, locale)) seen.push(locale);
       });
     });
     return seen;
@@ -288,23 +296,28 @@
     return a < b ? -1 : a > b ? 1 : 0;
   }
 
-  // The slots are the bundles that have a slice for the selected locale; `decoded` is null for a
-  // slot whose slice could not be loaded.
-  function findSlot(slots, wanted) {
-    var best = null;
-    slots.forEach(function (slot) {
-      var bundle = slot.bundle;
-      if (!isObject(bundle) || bundle.type !== wanted.type || bundle.name !== wanted.name) return;
-      if (best === null || compareBundleIds(slot.id, best.id) < 0) best = slot;
+  function bundleKey(type, name) {
+    return type + '\n' + name;
+  }
+
+  // Of the manifest bundles sharing a type and name, the lowest id is the one that answers. That
+  // holds even when it has nothing for the selected locale or its slice failed to load: a lookup
+  // never moves on to another bundle with the same name.
+  function chooseBundles(manifest) {
+    var chosen = Object.create(null);
+    Object.keys(manifest.bundles).forEach(function (id) {
+      var bundle = manifest.bundles[id];
+      if (!isObject(bundle) || typeof bundle.type !== 'string' || typeof bundle.name !== 'string') return;
+      var key = bundleKey(bundle.type, bundle.name);
+      if (!(key in chosen) || compareBundleIds(id, chosen[key]) < 0) chosen[key] = id;
     });
-    return best;
+    return chosen;
   }
 
   // Namespaces are searched in the order the manifest lists them, then any others, sorted. The
   // order of the keys inside the slice itself plays no part.
-  function namespaceOrder(slot, only) {
-    if (typeof only === 'string') return [only];
-    var listed = Array.isArray(slot.bundle.namespaces) ? slot.bundle.namespaces.map(String) : [];
+  function namespaceOrder(slot) {
+    var listed = isObject(slot.bundle) && Array.isArray(slot.bundle.namespaces) ? slot.bundle.namespaces.map(String) : [];
     var others = Object.keys(slot.decoded.namespaces)
       .filter(function (name) {
         return listed.indexOf(name) === -1;
@@ -313,14 +326,13 @@
     return listed.concat(others);
   }
 
-  // Returns { leaf, container } for the key, or null. Names match exactly.
   function findLeaf(slot, key, namespace) {
     if (!slot || !slot.decoded) return null;
     var containers = [];
     if (slot.decoded.flat) {
       containers.push(slot.decoded.flat);
     } else {
-      namespaceOrder(slot, namespace).forEach(function (name) {
+      (typeof namespace === 'string' ? [namespace] : slot.order).forEach(function (name) {
         if (name in slot.decoded.namespaces) containers.push(slot.decoded.namespaces[name]);
       });
     }
@@ -334,9 +346,17 @@
   // The client
 
   function createClient(state) {
+    var slotsById = Object.create(null);
+    state.slots.forEach(function (slot) {
+      slotsById[slot.id] = slot;
+      if (slot.decoded && slot.decoded.namespaces) slot.order = namespaceOrder(slot);
+    });
+
     function slotFor(options) {
       var wanted = options && isObject(options.bundle) ? options.bundle : state.defaultBundle;
-      return findSlot(state.slots, wanted);
+      if (!isObject(wanted) || typeof wanted.type !== 'string' || typeof wanted.name !== 'string') return null;
+      var id = state.chosen[bundleKey(wanted.type, wanted.name)];
+      return id === undefined ? null : slotsById[id] || null;
     }
 
     function lookup(key, options) {
@@ -435,7 +455,7 @@
   }
 
   function inactiveClient(defaultBundle) {
-    return createClient({ slots: [], defaultBundle: defaultBundle, active: false, language: null, report: function () {} });
+    return createClient({ slots: [], chosen: Object.create(null), defaultBundle: defaultBundle, active: false, language: null, report: function () {} });
   }
 
   // ---------------------------------------------------------------------------------------------
@@ -484,9 +504,14 @@
     }
 
     var slots = await loadSlots(session, manifest, language);
-    var active = findSlot(slots, config.defaultBundle);
+    var chosen = chooseBundles(manifest);
+    var defaultId = chosen[bundleKey(config.defaultBundle.type, config.defaultBundle.name)];
+    var active = slots.filter(function (slot) {
+      return slot.id === defaultId;
+    })[0];
     return createClient({
       slots: slots,
+      chosen: chosen,
       defaultBundle: config.defaultBundle,
       active: !!(active && active.decoded),
       language: language,
@@ -581,9 +606,8 @@
   async function loadSlots(session, manifest, language) {
     var slots = [];
     Object.keys(manifest.slices).forEach(function (bundleId) {
-      var perLocale = manifest.slices[bundleId];
-      var file = isObject(perLocale) && isObject(perLocale[language]) ? perLocale[language].json : null;
-      if (!isObject(file) || typeof file.hash !== 'string') return;
+      var file = jsonFile(manifest, bundleId, language);
+      if (!file) return;
       slots.push({ id: bundleId, bundle: manifest.bundles[bundleId], file: file, decoded: null });
     });
 

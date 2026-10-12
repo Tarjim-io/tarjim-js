@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildRelease, leaf, makeSlice, pluralKeys, requestsOfKind } from '../helpers/fake-delivery.js';
+import { buildRelease, leaf, makeSlice, pluralKeys, requestsOfKind, respond } from '../helpers/fake-delivery.js';
 import { startClient } from '../helpers/harness.js';
 
 const DEFAULT = { type: 'namespace', name: 'default' };
@@ -84,6 +84,7 @@ describe('choosing the locale', () => {
     });
     const { client } = await startClient(release, { config: { language: 'ar' } });
     expect(client.language).toBe('ar');
+    expect(client.active).toBe(false);
     expect(client.t('x', undefined, { bundle: { type: 'custom', name: 'extras' } })).toBe('إضافي');
     expect(client.t('app.title')).toBe('app.title');
     expect(objectNamesRequested(release)).toEqual([release.objectName('ns2', 'ar')]);
@@ -227,5 +228,70 @@ describe('bundle lookup', () => {
     expect(client.t('onlyZz', undefined, ui)).toBe('zz only');
     expect(client.t('dup', undefined, { ...ui, namespace: 'zz' })).toBe('from zz');
     expect(client.t('dup', undefined, { ...ui, namespace: 'nowhere' })).toBe('dup');
+  });
+});
+
+describe('which bundle answers', () => {
+  const twoSevens = () =>
+    buildRelease({
+      bundles: { ns7: DEFAULT, ns10: DEFAULT },
+      slices: {
+        ns7: { en: makeSlice('ns7', 'en', { k: leaf(1, 'from seven') }) },
+        ns10: {
+          en: makeSlice('ns10', 'en', { k: leaf(2, 'from ten') }),
+          ar: makeSlice('ns10', 'ar', { k: leaf(2, 'من عشرة') }),
+        },
+      },
+    });
+
+  it('never falls to a higher bundle id because the lowest one lacks the selected locale', async () => {
+    const arabic = await startClient(twoSevens(), { config: { language: 'ar' } });
+    expect(arabic.client.language).toBe('ar');
+    expect(arabic.client.t('k')).toBe('k');
+    expect(arabic.client.active).toBe(false);
+
+    const english = await startClient(twoSevens(), { config: { language: 'en' } });
+    expect(english.client.t('k')).toBe('from seven');
+    expect(english.client.active).toBe(true);
+  });
+
+  it('never falls to a higher bundle id because the lowest one failed to load', async () => {
+    const release = twoSevens();
+    const failing = release.objectName('ns7', 'en');
+    release.hook(({ kind, name }) => (kind === 'object' && name === failing ? respond(403, '') : undefined));
+    const { client, codes } = await startClient(release);
+    expect(client.t('k')).toBe('k');
+    expect(client.active).toBe(false);
+    expect(codes()).toEqual(['object-unavailable']);
+  });
+});
+
+describe('the locale universe', () => {
+  const withStringsOnlyArabic = (fallbackHasJson) => {
+    const slices = { ns1: { en: makeSlice('ns1', 'en', { 'app.title': leaf(1, 'Tarjim') }) } };
+    const base = buildRelease({ bundles: { ns1: DEFAULT }, slices });
+    const stringsOnly = { strings: { hash: 'a'.repeat(64), size: 3, transferSize: 3 } };
+    return buildRelease({
+      bundles: { ns1: DEFAULT },
+      slices,
+      manifestOverrides: {
+        slices: { ns1: { ...(fallbackHasJson ? base.manifest.slices.ns1 : {}), ar: stringsOnly } },
+      },
+    });
+  };
+
+  it('does not select a locale that is listed only as strings or xml', async () => {
+    const { client, codes } = await startClient(withStringsOnlyArabic(true), { config: { language: 'ar' } });
+    expect(client.language).toBe('en');
+    expect(client.active).toBe(true);
+    expect(client.t('app.title')).toBe('Tarjim');
+    expect(codes()).toEqual([]);
+  });
+
+  it('reports locale-unavailable when no listed locale has a json file', async () => {
+    const { client, codes } = await startClient(withStringsOnlyArabic(false), { config: { language: 'ar', fallbackLanguage: 'ar' } });
+    expect(client.language).toBe(null);
+    expect(client.active).toBe(false);
+    expect(codes()).toEqual(['locale-unavailable']);
   });
 });
