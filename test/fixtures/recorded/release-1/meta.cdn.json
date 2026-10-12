@@ -1,0 +1,12 @@
+{
+  "provenance": "recorded",
+  "recordedAt": "2026-10-12T19:42:52Z",
+  "status": 200,
+  "headers": {
+    "Content-Type": "application/json; charset=utf-8",
+    "Cache-Control": "private, max-age=60, stale-if-error=60",
+    "ETag": "\"m5-4fb6a9f213d60559dcbabf78f8f689dcac13c5e82c9c0cd2cfce58b2681ac019-p1800-c59727805\"",
+    "X-Tarjim-Api-Version": "2026-07-29"
+  },
+  "body": "{\"projectId\":1,\"generation\":5,\"resultsLastUpdate\":1791824674,\"checksum\":\"4fb6a9f213d60559dcbabf78f8f689dcac13c5e82c9c0cd2cfce58b2681ac019\",\"schemaVersion\":1,\"keyCount\":19,\"totalBytes\":3243,\"files\":3,\"truncatedCount\":0,\"builtAt\":\"2026-10-12T17:04:34.000Z\",\"manifestUrl\":\"https://cdn.example.invalid/releases/1/1/t11/m/23de064f09763be0fc417c62328ed7d2/manifest.json\",\"slicesBaseUrl\":\"https://cdn.example.invalid/releases/1/1/t11/slices/\",\"authenticated\":false,\"track\":\"js-release\",\"stage\":\"qa\",\"releaseId\":18,\"releasedAt\":\"2026-10-12T17:44:52.000Z\",\"movedAt\":\"2026-10-12T17:44:52.000Z\",\"sequence\":5,\"pollAfter\":1800,\"signedQuery\":\"Policy=REDACTED&Signature=REDACTED&Key-Pair-Id=REDACTED\",\"signatureExpires\":1791837773}"
+}
