@@ -128,6 +128,8 @@ umask 022
 call() {
   local method="$1" path="$2" body="${3:-}"
   local cfg="$work/curl.cfg" out="$work/response" status
+  # A transport failure writes no body; a stale one would be reported as this request's answer.
+  rm -f "$out"
   printf 'url = "%s%s"\n' "$api_base" "$path" >"$cfg"
   local args=(-q -sS --max-time 60 -X "$method" -o "$out" -w '%{http_code}' -K "$cfg" -H "@$key_headers")
   if [[ -n "$body" ]]; then
@@ -154,13 +156,17 @@ for lang in en ar; do
   fi
 done
 
-namespace_id="$(call GET "$p/namespaces?limit=100" | jq -er --arg n "$namespace" '.data[] | select(.name == $n) | .id')" \
-  || fail "no namespace named $namespace"
+namespaces="$(call GET "$p/namespaces?limit=100")"
+if ! namespace_id="$(jq -er --arg n "$namespace" '.data[] | select(.name == $n) | .id' <<<"$namespaces")"; then
+  fail "no namespace named $namespace"
+fi
 
 # create_key <name> [extra-json-fields]  -> prints the new key's id
 create_key() {
   local name="$1" extra="${2:-}"
-  [[ -n "$extra" ]] || extra='{}'
+  if [[ -z "$extra" ]]; then
+    extra='{}'
+  fi
   call POST "$p/keys" "$(jq -nc --arg k "$name" --argjson ns "$namespace_id" --argjson x "$extra" '{key: $k, mynamespaceId: $ns} + $x')" \
     | jq -er '.id'
 }

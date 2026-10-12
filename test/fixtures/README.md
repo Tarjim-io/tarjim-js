@@ -17,8 +17,9 @@ source until a live preflight is recorded. Recordings are made from a project cr
 fixtures, filled by `scripts/seed-fixture-project.sh`: their manifest and objects are hash-chained and
 cannot be edited, so they must never come from a project with real content or users.
 
-Only `meta` is rewritten by the capture: hosts become `*.invalid`, the signature a placeholder, and the
-tenant and project ids `1`. Bodies are stored decoded, so object hashes are those of the decoded bytes
+The capture rewrites `meta`: hosts become `*.invalid`, the signature a placeholder, and the tenant and
+project ids in its URLs `1`; the recorded error bodies get the same id rewrite. The manifest and the
+objects are kept byte for byte, so any id inside them is the fixtures project's own. Bodies are stored decoded, so object hashes are those of the decoded bytes
 and no `Content-Encoding` header is kept.
 
 ## Before committing a recording

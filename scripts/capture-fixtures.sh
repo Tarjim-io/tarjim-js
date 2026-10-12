@@ -277,16 +277,24 @@ if grep -qE "Signature=[^R]|Key-Pair-Id=[^R]" "$work/meta.redacted"; then
 fi
 write_envelope 200 "$work/meta.hdr" "$work/meta.redacted" "$stage/meta.$mode.json"
 
+# Error bodies are not hash-chained, so their ids (an `instance` path, say) are rewritten too.
+redact_ids() {
+  sed -E -i.bak "s#/t/${tenant_id}/#/t/1/#g; s#/projects/${project_id}/#/projects/1/#g" "$1"
+  rm -f "$1.bak"
+}
+
 status="$(fetch "$meta_url" "$work/e401.body" "$work/e401.hdr" "$bad_key_headers")"
 if [[ "$status" != "401" ]]; then
   fail "meta with an invalid key answered $status, expected 401"
 fi
+redact_ids "$work/e401.body"
 write_envelope 401 "$work/e401.hdr" "$work/e401.body" "$stage/errors/meta-401-unauthorized.json"
 
 status="$(fetch "$delivery_url" "$work/e400.body" "$work/e400.hdr" "$key_headers")"
 if [[ "$status" != "400" ]]; then
   fail "meta without appVersion answered $status, expected 400"
 fi
+redact_ids "$work/e400.body"
 write_envelope 400 "$work/e400.hdr" "$work/e400.body" "$stage/errors/meta-400-app-version-required.json"
 
 jq -n --arg at "$recorded_at" --arg v "$app_version" --arg mode "$mode" \
