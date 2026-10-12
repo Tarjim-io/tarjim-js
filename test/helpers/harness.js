@@ -1,5 +1,5 @@
 import { loadReference } from './load-reference.js';
-import { API_KEY } from './fake-delivery.js';
+import { API_KEY, buildRelease, leaf, makeSlice } from './fake-delivery.js';
 
 export const DEFAULT_BUNDLE = { type: 'namespace', name: 'default' };
 
@@ -84,3 +84,12 @@ export function accessSpy(name, log) {
 }
 
 export const plainData = plain;
+
+// One default namespace bundle in English with a single key, `app.title` = "Tarjim".
+export function basicRelease(options = {}) {
+  return buildRelease({
+    bundles: { ns1: { type: 'namespace', name: 'default' } },
+    slices: { ns1: { en: makeSlice('ns1', 'en', { 'app.title': leaf(1, 'Tarjim') }) } },
+    ...options,
+  });
+}
