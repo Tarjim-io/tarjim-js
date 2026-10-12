@@ -137,6 +137,9 @@ call() {
   if [[ ! "$status" =~ ^2 ]]; then
     echo "[ERROR] $method $path answered $status:" >&2
     jq -c '{status, code, detail}' <"$out" >&2 || true
+    if [[ "$status" == "409" ]]; then
+      echo "[ERROR] the key already exists: this project was seeded before; use a new, empty project" >&2
+    fi
     exit 1
   fi
   cat "$out"
