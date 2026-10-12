@@ -171,6 +171,14 @@ fetch() {
   curl "${args[@]}"
 }
 
+# problem_code <body-file>  -> " (<code>)" for a problem+json body, else nothing
+problem_code() {
+  local code
+  if code="$(jq -er '.code | strings' <"$1" 2>/dev/null)"; then
+    printf ' (%s)' "$code"
+  fi
+}
+
 # Content-Encoding is not kept: bodies are stored decoded.
 keep_headers='["Content-Type","Cache-Control","ETag","Retry-After","X-Tarjim-Api-Version"]'
 
@@ -195,7 +203,7 @@ meta_base="${delivery_url%/*}/"
 
 status="$(fetch "$meta_url" "$work/meta.body" "$work/meta.hdr" "$key_headers")"
 if [[ "$status" != "200" ]]; then
-  fail "meta answered $status, expected 200"
+  fail "meta answered $status$(problem_code "$work/meta.body"), expected 200"
 fi
 
 # A failing jq aborts the run: command substitution in an assignment propagates its status.
@@ -232,7 +240,7 @@ fi
 
 status="$(fetch "$manifest_url" "$stage/manifest.json" "$work/manifest.hdr" "$asset_headers")"
 if [[ "$status" != "200" ]]; then
-  fail "manifest answered $status, expected 200"
+  fail "manifest answered $status$(problem_code "$stage/manifest.json"), expected 200"
 fi
 if [[ "$(sha256 "$stage/manifest.json")" != "$checksum" ]]; then
   fail "manifest sha256 does not match meta.checksum"
@@ -252,7 +260,7 @@ while read -r hash file_type; do
   fi
   status="$(fetch "$url" "$stage/objects/$object" "$work/object.hdr" "$asset_headers")"
   if [[ "$status" != "200" ]]; then
-    fail "object $object answered $status, expected 200"
+    fail "object $object answered $status$(problem_code "$stage/objects/$object"), expected 200"
   fi
   if [[ "$(sha256 "$stage/objects/$object")" != "$hash" ]]; then
     fail "object $object does not match its manifest hash"
