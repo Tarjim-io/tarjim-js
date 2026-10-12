@@ -1,0 +1,11 @@
+{
+  "provenance": "recorded",
+  "recordedAt": "2026-10-12T19:38:47Z",
+  "status": 400,
+  "headers": {
+    "Content-Type": "application/problem+json; charset=utf-8",
+    "X-Tarjim-Api-Version": "2026-07-29",
+    "ETag": "W/\"cb-1vwJt+54hxtcUH5odJYfqgJfehE\""
+  },
+  "body": "{\"type\":\"https://api.tarjim.io/problems/delivery.app_version_required\",\"title\":\"Bad Request\",\"status\":400,\"detail\":\"appVersion must be a MAJOR.MINOR.PATCH version\",\"code\":\"delivery.app_version_required\"}"
+}
