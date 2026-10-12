@@ -185,6 +185,25 @@ describe('entry', () => {
     expect(plainData(client.entry('k')).attributes).toBe(null);
   });
 
+  it.each([
+    ['missing', undefined],
+    ['null', null],
+    ['an object', { a: 1 }],
+    ['a boolean', true],
+    ['an array', [1]],
+  ])('is null for a leaf whose id is %s, while t still answers', async (_, id) => {
+    const keys = { k: { value: 'v', ...(id === undefined ? {} : { id }) } };
+    const { client } = await clientFor(keys);
+    expect(client.entry('k')).toBe(null);
+    expect(client.t('k')).toBe('v');
+  });
+
+  it('accepts a string or a finite number as the id', async () => {
+    const { client } = await clientFor({ a: { id: 'x1', value: 'v' }, b: { id: 12, value: 'v' } });
+    expect(client.entry('a').id).toBe('x1');
+    expect(client.entry('b').id).toBe('12');
+  });
+
   it('works for entries in a nested bundle with a namespace option', async () => {
     const release = buildRelease({
       bundles: { ns1: DEFAULT, c1: { type: 'custom', name: 'ui', layout: 'nested', namespaces: ['n'] } },

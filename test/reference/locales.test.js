@@ -164,6 +164,25 @@ describe('plural forms follow the selected locale', () => {
   });
 });
 
+describe('plural rules for a locale key that is not a language tag', () => {
+  it('selects the other form, still uses zero for a count of 0, and never throws', async () => {
+    const keys = {
+      ...pluralKeys('cart.items', 10, { zero: 'Z0', one: 'O1', other: 'X5' }),
+      ...pluralKeys('cart.plain', 20, { one: 'O1', other: 'X5' }),
+    };
+    const release = buildRelease({
+      bundles: { ns1: DEFAULT },
+      slices: { ns1: { en_US: makeSlice('ns1', 'en_US', keys), en: makeSlice('ns1', 'en', keys) } },
+    });
+    const { client, codes } = await startClient(release, { config: { language: 'EN_us' } });
+    expect(client.language).toBe('en_US');
+    expect(client.t('cart.items', { count: 1 })).toBe('X5');
+    expect(client.t('cart.items', { count: 0 })).toBe('Z0');
+    expect(client.t('cart.plain', { count: 1 })).toBe('X5');
+    expect(codes()).toEqual([]);
+  });
+});
+
 describe('bundle lookup', () => {
   it('lets the lowest numeric bundle id win when two share type and name', async () => {
     const release = buildRelease({

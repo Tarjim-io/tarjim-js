@@ -385,3 +385,23 @@ describe('every slot that cannot be loaded is reported', () => {
     }
   });
 });
+
+describe('the delivery mode', () => {
+  it.each([
+    ['absent', undefined],
+    ['null', null],
+    ['a string', 'true'],
+    ['a number', 1],
+    ['false', false],
+  ])('is CDN mode when authenticated is %s', async (_, authenticated) => {
+    const release = basicRelease({ metaOverrides: { authenticated } });
+    const { client, reports } = await startClient(release);
+    expect(client.active).toBe(true);
+    expect(client.t('app.title')).toBe('Tarjim');
+    expect(reports).toEqual([]);
+    for (const { url, init } of [...requestsOfKind(release, 'manifest'), ...requestsOfKind(release, 'object')]) {
+      expect(url).toContain('Signature=S1');
+      expect(init.headers).toBeUndefined();
+    }
+  });
+});

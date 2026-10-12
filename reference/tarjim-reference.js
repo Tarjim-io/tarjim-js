@@ -71,7 +71,10 @@
     if (typeof value !== 'string') return '0.0.0';
     var text = value.charAt(0) === 'v' ? value.slice(1) : value;
     var run = /^[0-9.]*/.exec(text)[0];
-    var numbers = run.split('.').slice(0, 3);
+    var numbers = run.split('.');
+    // "2." and "2.x" leave an empty run behind the last dot; it is dropped, not rejected.
+    if (numbers.length > 1 && numbers[numbers.length - 1] === '') numbers.pop();
+    numbers = numbers.slice(0, 3);
     var parts = [];
     for (var i = 0; i < 3; i++) {
       var digits = numbers[i] === undefined ? '0' : numbers[i];
@@ -194,7 +197,7 @@
   function normaliseLeaf(raw) {
     if (!isObject(raw)) return null;
     return {
-      id: raw.id === undefined || raw.id === null ? null : String(raw.id),
+      id: typeof raw.id === 'string' || (typeof raw.id === 'number' && isFinite(raw.id)) ? String(raw.id) : null,
       value: typeof raw.value === 'string' ? raw.value : null,
       type: typeof raw.type === 'string' ? raw.type : null,
       className: typeof raw.class === 'string' ? raw.class : null,
@@ -378,9 +381,17 @@
       return null;
     }
 
+    // A locale key that is not a valid language tag has no plural rules: every count is "other".
+    var pluralRules = null;
+    try {
+      if (state.language !== null) pluralRules = new Intl.PluralRules(state.language);
+    } catch (e) {
+      pluralRules = null;
+    }
+
     function pluralForm(found, key, count) {
       if (count === 0 && pluralChild(found, key, 'zero')) return 'zero';
-      return new Intl.PluralRules(state.language).select(count);
+      return pluralRules ? pluralRules.select(count) : 'other';
     }
 
     function translate(key, args, options) {
@@ -413,7 +424,7 @@
 
     function entry(key, options) {
       var found = lookup(key, options);
-      if (!found || !found.leaf.value) return null;
+      if (!found || !found.leaf.value || found.leaf.id === null) return null;
       var leaf = found.leaf;
       var attributes = {};
       var dropped = [];
@@ -427,7 +438,7 @@
       if (dropped.length) state.report('attribute-dropped', 'Attributes outside the allow-list were dropped', { names: dropped });
       return {
         value: leaf.value,
-        id: String(leaf.id),
+        id: leaf.id,
         type: leaf.type === null ? 'text' : leaf.type,
         attributes: Object.keys(attributes).length ? attributes : null,
         className: leaf.className,
@@ -558,8 +569,8 @@
 
   function metaIsComplete(meta) {
     var strings = typeof meta.checksum === 'string' && typeof meta.manifestUrl === 'string' && typeof meta.slicesBaseUrl === 'string';
-    if (!strings || typeof meta.authenticated !== 'boolean') return false;
-    return meta.authenticated || typeof meta.signedQuery === 'string';
+    if (!strings) return false;
+    return meta.authenticated === true || typeof meta.signedQuery === 'string';
   }
 
   // Origin mode: URLs are relative to the delivery URL and need the key. CDN mode: URLs are
