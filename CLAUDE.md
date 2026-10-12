@@ -7,7 +7,7 @@ self-hosted by the site that uses it. MIT licensed. Versions stay `0.x` until th
 
 ## Commands
 
-- Install: `pnpm install` (pnpm 10, Node 20 or newer)
+- Install: `pnpm install` (pnpm 10, Node 20.19+ or 22.12+)
 - Test: `pnpm test`
 - Record fixtures from a live server: `scripts/capture-fixtures.sh --help`
 - Fill a fixtures-only project with invented keys: `scripts/seed-fixture-project.sh --help`

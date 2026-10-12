@@ -16,8 +16,4 @@
   var TarjimReference = { version: VERSION, start: start };
 
   root.TarjimReference = TarjimReference;
-  // Lets the Node tests require() the file; browsers have no `module`.
-  if (typeof module === 'object' && module.exports) {
-    module.exports = TarjimReference;
-  }
 })(typeof globalThis !== 'undefined' ? globalThis : this);
