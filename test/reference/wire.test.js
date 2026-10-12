@@ -114,6 +114,17 @@ describe('request shape', () => {
     expect('cache' in init).toBe(false);
   });
 
+  it('sends origin manifest and object requests with both protocol headers', async () => {
+    const release = basicRelease({ mode: 'origin' });
+    await startClient(release);
+    const expected = { 'x-tarjim-apikey': API_KEY, 'x-tarjim-api-version': '2026-07-29' };
+    expect(requestsOfKind(release, 'manifest')).toHaveLength(1);
+    expect(requestsOfKind(release, 'object')).toHaveLength(1);
+    for (const kind of ['meta', 'manifest', 'object']) {
+      for (const { init } of requestsOfKind(release, kind)) expect(headersOf(init)).toEqual(expected);
+    }
+  });
+
   it('sets redirect: error on every request, in both modes', async () => {
     for (const mode of ['cdn', 'origin']) {
       const release = basicRelease({ mode });
@@ -142,6 +153,32 @@ describe('request shape', () => {
     const client = await started;
     expect(client.active).toBe(false);
     expect(harness.codes()).toEqual(['network']);
+  });
+
+  it('gives manifest and object requests a signal and aborts them after 20 seconds', async () => {
+    for (const hung of ['manifest', 'object']) {
+      const timers = [];
+      const release = basicRelease({
+        hooks: [({ kind, init }) => (kind === hung ? hangUntilAborted(init) : undefined)],
+      });
+      const harness = createHarness(release, {
+        globals: {
+          setTimeout: (fn, ms) => timers.push({ fn, ms }) && timers.length,
+          clearTimeout: () => {},
+        },
+      });
+      const started = harness.start();
+      started.catch(() => {});
+      const wanted = hung === 'manifest' ? 2 : 3;
+      await vi.waitFor(() => expect(timers.length).toBe(wanted));
+      expect(timers.map(({ ms }) => ms)).toEqual(Array(wanted).fill(20000));
+      timers[wanted - 1].fn();
+
+      const client = await started;
+      expect(client.active).toBe(false);
+      expect(harness.codes()).toEqual(hung === 'manifest' ? ['network'] : ['object-unavailable']);
+      for (const { init } of release.requests) expect(init.signal).toBeInstanceOf(AbortSignal);
+    }
   });
 
   it('treats a response that was redirected, or is an opaque redirect, as a failure', async () => {
@@ -233,6 +270,17 @@ describe('app version', () => {
     }
     expect(harness.codes().filter((code) => code === 'app-version-normalised')).toHaveLength(1);
     expect(JSON.stringify(harness.reports)).not.toContain(API_KEY);
+  });
+
+  it('reports what it was given and what it sent, as from and to', async () => {
+    const harness = createHarness(basicRelease(), { config: { appVersion: 'v2.3.0-rc.1' } });
+    await harness.start();
+    const [report] = harness.reports.filter(({ code }) => code === 'app-version-normalised');
+    expect(report).toMatchObject({ from: 'v2.3.0-rc.1', to: '2.3.0' });
+
+    const odd = createHarness(basicRelease(), { config: { appVersion: 42 } });
+    await odd.start();
+    expect(odd.reports.find(({ code }) => code === 'app-version-normalised')).toMatchObject({ from: '42', to: '0.0.0' });
   });
 
   it('stays quiet when the version is already in its normal form', async () => {

@@ -111,6 +111,19 @@ describe('meta problems', () => {
     expect(JSON.stringify(reports[0])).toContain('delivery.forbidden');
   });
 
+  it('names the problem code in the problemCode field and nothing else of the body', async () => {
+    const release = basicRelease({
+      hooks: [({ kind }) => (kind === 'meta' ? problem(403, 'delivery.forbidden', { detail: 'secret detail' }) : undefined)],
+    });
+    const { reports } = await startClient(release);
+    expect(reports).toHaveLength(1);
+    expect(reports[0]).toMatchObject({ code: 'meta-status', status: 403, problemCode: 'delivery.forbidden' });
+    expect(JSON.stringify(reports[0])).not.toContain('secret detail');
+
+    const plain = basicRelease({ hooks: [({ kind }) => (kind === 'meta' ? respond(502, 'Bad gateway') : undefined)] });
+    expect('problemCode' in (await startClient(plain)).reports[0]).toBe(false);
+  });
+
   it('reports a meta-status without a problem code when the body is not JSON', async () => {
     const release = basicRelease({ hooks: [({ kind }) => (kind === 'meta' ? respond(502, 'Bad gateway') : undefined)] });
     const { client, reports } = await startClient(release);

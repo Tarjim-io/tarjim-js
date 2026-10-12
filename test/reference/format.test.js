@@ -139,6 +139,13 @@ describe('plural values with object arguments', () => {
     expect(client.t('items', { count: 1e21 })).toBe('1e+21 / 1e+21 / 1e+21 / 1e+21 / %2$d / 100% / 1e+21 / {who}');
   });
 
+  it("applies the same rule to the parent's own value when no child is usable", async () => {
+    const keys = pluralKeys('items', 10, { one: '', other: '' }, 'parent %d of {count}');
+    const release = buildRelease({ bundles: { ns1: DEFAULT }, slices: { ns1: { en: makeSlice('ns1', 'en', keys) } } });
+    const { client } = await startClient(release);
+    expect(client.t('items', { count: 4 })).toBe('parent 4 of 4');
+  });
+
   it('does not apply the plural printf rule to a key that is not plural', async () => {
     const { client } = await pluralClient();
     expect(client.t('plain', { count: 3 })).toBe('plain %d 3');
