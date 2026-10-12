@@ -274,7 +274,7 @@ tenant_id="$(sed -E 's#^.*/t/([0-9]+)/projects/.*$#\1#' <<<"$delivery_url")"
 project_id="$(sed -E 's#^.*/projects/([0-9]+)/delivery/meta$#\1#' <<<"$delivery_url")"
 jq -ec --arg t "$tenant_id" --arg p "$project_id" '
   def redact_host: if test("^[A-Za-z][A-Za-z0-9+.-]*://") then sub("^(?<s>[A-Za-z][A-Za-z0-9+.-]*://)[^/]+"; "\(.s)cdn.example.invalid") else . end;
-  def redact_ids: gsub("/t/\($t)/"; "/t/1/") | gsub("/projects/\($p)/"; "/projects/1/") | gsub("/releases/\($t)/\($p)/"; "/releases/1/1/");
+  def redact_ids: gsub("/t/\($t)/"; "/t/1/") | gsub("/projects/\($p)/"; "/projects/1/") | gsub("/\($t)/\($p)/"; "/1/1/");
   .manifestUrl |= (redact_host | redact_ids)
   | .slicesBaseUrl |= (redact_host | redact_ids)
   | if has("projectId") then .projectId = 1 else . end
@@ -282,6 +282,11 @@ jq -ec --arg t "$tenant_id" --arg p "$project_id" '
 ' <"$work/meta.body" | tr -d '\n' >"$work/meta.redacted"
 if grep -qE "Signature=[^R]|Key-Pair-Id=[^R]" "$work/meta.redacted"; then
   fail "the scrubbed meta still carries a signature"
+fi
+# CDN paths differ by delivery mode (`releases/<t>/<p>/`, `builds/<t>/<p>/`); a form the rewrite
+# does not know must stop the capture, not reach a public fixture.
+if jq -r '.manifestUrl, .slicesBaseUrl' <"$work/meta.redacted" | grep -qE "/(t/)?${tenant_id}/(projects/)?${project_id}/"; then
+  fail "the scrubbed meta still carries the real tenant and project ids"
 fi
 write_envelope 200 "$work/meta.hdr" "$work/meta.redacted" "$stage/meta.$mode.json"
 
