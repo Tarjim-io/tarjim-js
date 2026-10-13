@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <!-- No inline script: the configuration lives in tarjim-config.js on your own origin. -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; connect-src https://delivery.example.com https://cdn.example.com"
+    />
+    <title>Tarjim reference client, strict CSP</title>
+  </head>
+  <body>
+    <h1 data-key="app.title">app.title</h1>
+
+    <script src="tarjim-reference.js"></script>
+    <script src="tarjim-config.js"></script>
+  </body>
+</html>
