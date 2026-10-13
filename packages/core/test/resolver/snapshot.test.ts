@@ -422,6 +422,11 @@ describe('plural parents and children', () => {
     expect(snapshot.t('cart', { count: 2 })).toBe('MANY');
   });
 
+  it('falls to the other child when the child for the form is empty', () => {
+    const snapshot = snapshotWith(pluralKeys('cart', 10, { one: '', other: 'MANY' }, 'PARENT'));
+    expect(snapshot.t('cart', { count: 1 })).toBe('MANY');
+  });
+
   it('falls to the embedded copy when the downloaded parent has nothing usable', () => {
     const embedded = flatSlice('ns1', 'en', pluralKeys('cart', 10, { one: 'embedded one', other: 'embedded other' }));
     const snapshot = snapshotWith(pluralKeys('cart', 10, { one: '', other: '' }, ''), { embedded: [embedded] });

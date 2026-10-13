@@ -250,8 +250,7 @@ export function createSnapshot(input: SnapshotInput): Snapshot {
     const answer = find(key, options, (leaf, slice) => {
       if (leaf.pluralChildIds && args !== undefined && typeof count === 'number') {
         const form = count === 0 && pluralChild(slice, leaf, key, 'zero') ? 'zero' : pluralRules?.select(count) ?? 'other';
-        const child = pluralChild(slice, leaf, key, form) ?? pluralChild(slice, leaf, key, 'other');
-        const value = child?.value || leaf.value;
+        const value = pluralChild(slice, leaf, key, form)?.value || pluralChild(slice, leaf, key, 'other')?.value || leaf.value;
         return value ? format(value, args, { plural: true, count, legacyPercentPlaceholders }) : undefined;
       }
       if (!leaf.value) return undefined;
