@@ -43,7 +43,7 @@ Tarjim.start({
 });
 ```
 
-`window.Tarjim` holds exactly `{ start, version }`; `start()` returns the instance.
+`window.Tarjim` is an object whose keys are `start` and `version`; `start()` returns the instance.
 [`examples/plain-html/with-package.html`](../../examples/plain-html) is a complete page with a
 strict Content Security Policy and a language switch.
 
@@ -71,13 +71,15 @@ const tarjim = await Tarjim.start({ /* the same options */ });
 | `persistLanguage` | save a language chosen with `setLanguage` even when `language` is set. |
 | `embedded` | slices bundled with your page, used until a release is downloaded and as a last resort. |
 | `waitForContent` | milliseconds `start()` may wait for the first downloaded release when nothing is held yet. |
+| `fetch` | the function used for every request. Defaults to the page's `fetch`; pass your own to add a proxy or a test double. |
 | `analytics` | `{ installId: false }` to send no install id (see below). |
 | `legacyPercentPlaceholders` | `true` to fill `%%name%%` placeholders from named arguments. |
 | `strict` | `true` to throw on a bad configuration instead of serving only the embedded text. |
-| `onReport`, `debug` | called once per kind of problem per day; `debug` logs them at info level. |
+| `onReport`, `debug` | `onReport` is called once per problem (its code and details) per day, and the SDK remembers that across reloads; `debug` logs reports at info level instead of debug. |
 
-`start()` resolves once the text held in the browser is ready, which is usually immediately. Until
-the first release arrives, lookups return the key name.
+`start()` resolves once the text held in the browser is ready, which is usually immediately. Before
+the first release lands, lookups return the `embedded` text, else the key name. Before `start()`
+resolves there is no instance, so show your embedded text or a placeholder until it does.
 
 ## The instance
 
@@ -85,13 +87,14 @@ the first release arrives, lookups return the key name.
 |---|---|
 | `t(key, args?, { bundle?, namespace? })` | the text, or the key name when missing. `args` fills `{name}` from an object, or `%s %d %1$s` from an array. `{ count: n }` picks a plural form. |
 | `tArray(key)` | a string array's items, in order |
-| `entry(key)` | `{ value, id, type, attributes, className }`, or `null`. For media keys, `value` is an `https:` URL. |
-| `language`, `ready` | the language being served; whether local text is ready |
+| `entry(key)` | `{ value, id, type, attributes, className }`, or `null`. For media keys, `value` is an `https:` URL; take a media URL from `entry(key)?.value` and never from `t()`, which returns the raw value unchecked. |
+| `language`, `ready` | the language being served; `ready` is always `true` on a resolved instance |
 | `setLanguage(language)` | resolves once the new language is active; rejects when the release has none |
 | `on(type, listener)` | `'downloaded'`, `'activated'` or `'languageChanged'`; returns a function that removes the listener |
 | `checkNow()`, `activatePendingUpdate()` | check for a release now; switch to a downloaded one |
 | `setInstallId(enabled)` | turn the install id on or off |
-| `updates()`, `subscribe(listener)`, `getVersion()` | the same events as an async iterator, and as a subscription for UI frameworks |
+| `updates()` | the same events as an async iterator |
+| `subscribe(listener)`, `getVersion()` | for UI frameworks: the listener fires when lookups may answer differently (a newer release is activated or the language changes, not when one is only `downloaded`), and `getVersion()` is the number that changes with it |
 | `stop()` | stop checking for releases |
 
 ## What to know before you ship it
@@ -99,7 +102,7 @@ the first release arrives, lookups return the key name.
 - **Values are untrusted text.** Insert them with `textContent`, never as HTML.
   `entry().attributes` is an allow-list of names; copy only the ones you expect onto an element,
   never spread them. `entry()` returns a media key only when its URL is `https:`; never put any other value into `href`
-  or `src`.
+  or `src`. In particular, never use `t()` for `src` or `href`: it returns the raw value unchecked.
 - **Content Security Policy.** `connect-src` must list your delivery host and the CDN host your
   releases are served from. For now that CDN host is under `*.cloudfront.net`; this will change to a
   Tarjim host. With `script-src 'self'` and the configuration in its own file, the page needs no inline script.

@@ -30,8 +30,8 @@ tarjim.t('app.title');
 | `new TarjimClient({ projectId, tarjimApikey, defaultLanguage, defaultNamespace, supportedLanguages, additionalNamespaces, cachedTarjimData, useSingleInstance, keyCase })` | `Tarjim.start({ deliveryUrl, apiKey, appVersion, defaultBundle, fallbackLanguage, language?, embedded?, … })`. The project is part of `deliveryUrl`. Namespaces become bundles that the track selects, so there is nothing to list in the page. The languages come from the release. Keep the instance `start()` returns in a module if you want one shared instance. |
 | `__T(key, { namespace, mappings, subkey, skipTid, SEO })`, which returns a string or a `<span data-tid>` | `t(key, args?, { bundle?, namespace? })`, which always returns a string. There is no `<span>`. A value is untrusted text: if it may contain HTML, sanitising and rendering it is up to your page. |
 | `__TS(key)` | `t(key)` |
-| `mappings` with `%%name%%` placeholders | `t(key, { name: 'value' })` fills `{name}`. To keep `%%name%%` while you migrate, start with `legacyPercentPlaceholders: true`. |
-| `__TM(key)` and `__TI(key)`, which return `{ src, data-tid, … }` for media | `t(key)` returns the media URL. `entry(key)` returns `{ value, id, type, attributes, className }`; copy the `attributes` you expect, never all of them. |
+| `mappings` with `%%name%%` placeholders | `t(key, { name: 'value' })` fills `{name}`. To keep `%%name%%` while you migrate, start with `legacyPercentPlaceholders: true`; it matches the name case-sensitively, where v2 matched case-insensitively. |
+| `__TM(key)` and `__TI(key)`, which return `{ src, data-tid, … }` for media | `entry(key)` returns `{ value, id, type, attributes, className }`. Take a media URL from `entry(key)?.value`, which is `https:` only; `t()` returns the raw value unchecked, so never use it for `src` or `href`. Copy the `attributes` you expect, never all of them. |
 | `__TSEO`, `__TTT`, `__TMT`, `__TMD`, which write `document.title` and `<meta>` tags | Removed. Set them yourself: `document.title = tarjim.t('page.title')`. |
 | `__TD(key)`, all languages for a key | Removed. One language is downloaded at a time; call `setLanguage()` to change it. |
 | `setCurrentLocale(language)` and `getCurrentLocale()` | `setLanguage(language)`, which is async and resolves once the new language is showing, and the `language` property. `setLanguage` rejects when the release has no text for that language. |
@@ -47,9 +47,9 @@ tarjim.t('app.title');
   the files that changed.
 - **Host.** v2 had its address built in. v3 has none; you pass `deliveryUrl`.
 - **Failures.** v2 logged to the console and could leave an empty cache. v3 keeps the last good text,
-  backs off, reports a problem once through `onReport`, and never throws from a lookup.
+  backs off, reports a problem once a day through `onReport`, and never throws from a lookup.
 - **First paint.** v2 read `localStorage` synchronously. v3 stores text in IndexedDB, so it is ready
-  after `await Tarjim.start()`; before that, lookups return the key name.
+  after `await Tarjim.start()`; before that there is no instance, so show your embedded text or a placeholder. Before the first release lands, lookups return the `embedded` text, else the key name.
 - **Stored data.** v3 does not read or delete the v2 `localStorage` entry, so both can run side by
   side while you migrate.
 - **Content Security Policy.** Allow your delivery host and the CDN host in `connect-src`; see the

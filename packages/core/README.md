@@ -18,6 +18,8 @@ tarjim.t('app.title');
 
 - `createRuntime(config, platform)` resolves to the instance. It never rejects for a condition it can
   degrade from; with `strict: true` a bad configuration throws `TarjimConfigError`.
+- `TarjimConfigError`, and `TarjimLanguageError`, which `setLanguage` rejects with when the release has no
+  text for that language.
 - `TarjimConfig`, the `Platform` a host provides, and the instance type `Tarjim`.
 - `SDK_VERSION` and `API_VERSION`.
 
@@ -28,6 +30,8 @@ README](../browser/README.md); they are the same.
 
 - **Values are untrusted text.** Show them with `textContent` or a framework's text node, never as
   HTML. `entry().attributes` is an allow-list; copy only the attributes you expect, never spread them.
+  Take a media URL from `entry(key)?.value`, which is `https:` only; `t()` returns the raw value
+  unchecked, so never use it for `src` or `href`.
 - **Content Security Policy.** In a browser, `connect-src` must list the delivery host and the CDN
   host the releases are served from.
 - **`appVersion` is the site's release.** It changes on every deploy and is sent with every check.
