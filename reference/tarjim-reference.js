@@ -208,6 +208,14 @@
     };
   }
 
+  function isHttpsUrl(value) {
+    try {
+      return new URL(value).protocol === 'https:';
+    } catch (e) {
+      return false;
+    }
+  }
+
   // Maps without a prototype, so a key called "__proto__" or "constructor" is just a key.
   function normaliseKeys(rawKeys) {
     var container = { byName: Object.create(null), byId: Object.create(null) };
@@ -447,10 +455,16 @@
         });
       }
       if (dropped.length) state.report('attribute-dropped', 'Attributes outside the allow-list were dropped', { names: dropped });
+      var type = leaf.type === null ? 'text' : leaf.type;
+      // The page puts a media value into src or href, where a script or data URL would run.
+      if (type !== 'text' && !isHttpsUrl(leaf.value)) {
+        state.report('media-url-rejected', 'A media value is not an https URL and was not returned');
+        return null;
+      }
       return {
         value: leaf.value,
         id: leaf.id,
-        type: leaf.type === null ? 'text' : leaf.type,
+        type: type,
         attributes: Object.keys(attributes).length ? attributes : null,
         className: leaf.className,
       };
