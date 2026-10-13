@@ -32,6 +32,8 @@ export interface State {
   /** "<checksum>\n<locale>" of the last held-manifest locale fetch, so it runs once per change. */
   localeFetched?: string;
   installId?: string;
+  /** The SDK version that wrote `rejectedChecksums`; a different one gives those releases another chance. */
+  sdkVersion?: string;
   rejectedChecksums?: string[];
   reported?: Record<string, number>;
 }
@@ -39,6 +41,8 @@ export interface State {
 export interface Store {
   readonly id: string;
   readonly degraded: boolean;
+  /** False for a store that does not outlive the page. Absent counts as durable. */
+  readonly durable?: boolean;
   withLock<T>(fn: () => Promise<T>): Promise<T | typeof BUSY>;
   /** Never throws; an unreadable record reads as empty. */
   readState(): Promise<State>;
@@ -143,7 +147,7 @@ export function sanitiseInstall(raw: unknown): Install | undefined {
 }
 
 const NUMBER_FIELDS = ['lastCheck', 'lastPollAfter', 'backoffStep', 'notBefore', 'checkNowAt'] as const;
-const STRING_FIELDS = ['languageOverride', 'localeFetched', 'installId'] as const;
+const STRING_FIELDS = ['languageOverride', 'localeFetched', 'installId', 'sdkVersion'] as const;
 
 /** Keeps every field that has the right shape and drops the rest; never throws. */
 export function sanitiseState(raw: unknown): State {
@@ -220,6 +224,7 @@ export async function runWithProcessLock<T>(id: string, fn: () => Promise<T>): P
 
 export class MemoryStore implements Store {
   readonly id: string;
+  readonly durable = false;
   degraded: boolean;
   private state: Record<string, unknown> = {};
   private readonly slices = new Map<string, Uint8Array>();

@@ -79,6 +79,7 @@ const sameBytes = (a: Uint8Array, b: Uint8Array): boolean => a.length === b.leng
 
 export class IndexedDbStore implements Store {
   readonly id: string;
+  readonly durable = true;
   degraded = false;
   private readonly db: IDBDatabase;
   private readonly locks: LockManagerLike | undefined;
