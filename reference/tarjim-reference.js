@@ -679,6 +679,12 @@
   }
 
   async function fetchSlot(session, slot, signedQuery) {
+    // The hash becomes part of the address, so anything but 64 hex digits (a "../" for one) must
+    // never reach a URL.
+    if (!/^[0-9a-f]{64}$/.test(slot.file.hash) || !Number.isInteger(slot.file.size) || slot.file.size < 0) {
+      session.report('object-unavailable', 'A slice entry in the manifest is malformed');
+      return 'failed';
+    }
     var request = objectRequest(session, session.meta.slicesBaseUrl + slot.file.hash + '.json', signedQuery);
     if (!request) {
       session.report('meta-invalid', 'The slice address in the meta document is not usable');

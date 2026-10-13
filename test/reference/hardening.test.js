@@ -65,3 +65,42 @@ describe('class names', () => {
     expect(client.entry('good').className).toBe('hero big_1-a');
   });
 });
+
+describe('manifest object entries', () => {
+  const VALID_HASH = 'ab'.repeat(32);
+  const withEntry = (mode, file) =>
+    buildRelease({
+      mode,
+      bundles: { ns1: DEFAULT },
+      slices: { ns1: { en: makeSlice('ns1', 'en', { 'app.title': leaf(1, 'Tarjim') }) } },
+      manifestOverrides: { slices: { ns1: { en: { json: file } } } },
+    });
+
+  describe.each(['cdn', 'origin'])('in %s mode', (mode) => {
+    it.each([
+      ['a path in the hash', { hash: '../../other', size: 10 }],
+      ['an upper-case hash', { hash: 'AB'.repeat(32), size: 10 }],
+      ['a short hash', { hash: 'ab'.repeat(31), size: 10 }],
+      ['a negative size', { hash: VALID_HASH, size: -1 }],
+      ['a fractional size', { hash: VALID_HASH, size: 1.5 }],
+      ['a size that is text', { hash: VALID_HASH, size: '10' }],
+      ['no size', { hash: VALID_HASH }],
+    ])('requests nothing for %s and reports object-unavailable', async (_, file) => {
+      const release = withEntry(mode, file);
+      const { client, codes } = await startClient(release);
+      expect(client.active).toBe(false);
+      expect(codes()).toEqual(['object-unavailable']);
+      for (const { url } of release.requests) {
+        expect(url).not.toContain('..');
+        expect(url).not.toContain('other');
+      }
+      expect(release.requests.filter(({ url }) => url.includes('/slices/'))).toEqual([]);
+    });
+
+    it('fetches an entry whose hash and size are well formed', async () => {
+      const release = withEntry(mode, { hash: VALID_HASH, size: 10 });
+      await startClient(release);
+      expect(release.requests.filter(({ url }) => url.includes(`/slices/${VALID_HASH}.json`))).toHaveLength(1);
+    });
+  });
+});
