@@ -19,7 +19,9 @@ export function clampRetryAfter(value: unknown): number {
 
 /** A wait written under a clock that has since moved back must not hold checks off for more than a day. */
 export function notBeforeOf(state: State, now: number): number {
-  return Math.min(state.notBefore ?? 0, now + MAX_WAIT_SECONDS * 1000);
+  const notBefore = state.notBefore ?? 0;
+  // No backoff is longer than a day, so one ending further ahead was written before the clock moved back.
+  return notBefore > now + MAX_WAIT_SECONDS * 1000 ? 0 : notBefore;
 }
 
 /** Milliseconds since the epoch when the next scheduled check is due. */

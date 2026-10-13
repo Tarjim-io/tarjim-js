@@ -236,6 +236,17 @@ describe('a manual check', () => {
     expect((await w.state()).checkNowAt).toBeUndefined();
   });
 
+  it('goes ahead after the clock moved back past a backoff it had written', async () => {
+    const w = await installed();
+    w.server.on('meta', () => respond(503, 'busy', { headers: { 'Content-Type': 'text/plain', 'Retry-After': '600' } }), { times: 1 });
+    await w.run();
+    const before = w.server.count('meta');
+
+    w.clock.advance(-7 * 86_400_000);
+    expect((await w.run('checkNow')).outcome).toBe('noChange');
+    expect(w.server.count('meta')).toBe(before + 1);
+  });
+
   it('is not held back by a scheduled check made just before', async () => {
     const w = await installed();
     w.clock.advance(5000);

@@ -78,11 +78,16 @@ describe('backoffSeconds', () => {
 describe('dueAt', () => {
   const polled = (overrides: State = {}): State => ({ lastCheck: NOW - seconds(100), lastPollAfter: 900, ...overrides });
 
-  it('never schedules further than a day ahead, however far a backoff reaches', () => {
+  it('ignores a backoff ending more than a day ahead, which only a clock moved back can leave', () => {
     const far = NOW + seconds(10 * 86400);
-    expect(dueAt({ notBefore: far }, NOW, 0)).toBe(NOW + seconds(86400));
-    expect(dueAt({ lastCheck: NOW - seconds(5000), lastPollAfter: 900, notBefore: far }, NOW, 0)).toBe(NOW + seconds(86400));
-    expect(dueAt({ lastCheck: NOW + seconds(100_000), lastPollAfter: 900, notBefore: far }, NOW, 0)).toBe(NOW + seconds(86400));
+    expect(dueAt({ notBefore: far }, NOW, 0)).toBe(NOW);
+    expect(dueAt({ lastCheck: NOW - seconds(5000), lastPollAfter: 900, notBefore: far }, NOW, 0)).toBe(NOW);
+    expect(dueAt({ lastCheck: NOW + seconds(100_000), lastPollAfter: 900, notBefore: far }, NOW, 0)).toBe(NOW);
+  });
+
+  it('keeps a backoff that ends within a day', () => {
+    const near = NOW + seconds(86400);
+    expect(dueAt({ notBefore: near }, NOW, 0)).toBe(near);
   });
 
   it('is now when there has been no check', () => {
