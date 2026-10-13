@@ -18,6 +18,7 @@
     "@playwright/test": "1.63.0",
     "@types/node": "24.19.0",
     "esbuild": "0.28.2",
+    "fake-indexeddb": "6.2.5",
     "tsup": "8.5.1",
     "typescript": "5.9.3",
     "vitest": "4.1.11"
