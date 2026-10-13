@@ -53,8 +53,8 @@ A `200` answer is JSON. The fields a client uses:
 |---|---|
 | `schemaVersion` | `1`. An unknown value: keep what you hold, do not read further. |
 | `checksum` | sha256 (hex) of the manifest's bytes |
-| `manifestUrl`, `slicesBaseUrl` | where the manifest and the slices are (see §4) |
-| `authenticated` | `true`: origin mode; anything else: CDN mode (§4) |
+| `manifestUrl`, `slicesBaseUrl` | where the manifest and the slices are (see section 4) |
+| `authenticated` | `true`: origin mode; anything else: CDN mode (section 4) |
 | `signedQuery` | CDN mode only: the query string to append to every object URL |
 | `track`, `stage` | the binding. `track: null` means the key is NOT bound, and a web client must stop. |
 | `releaseId` | the release the stage points at |
@@ -82,7 +82,7 @@ network failure exactly like a 5xx.
 
 ## 3. The manifest
 
-`GET manifestUrl` (see §4 for the URL and headers). Verify that the sha256 of the **bytes received**
+`GET manifestUrl` (see section 4 for the URL and headers). Verify that the sha256 of the **bytes received**
 (after any transfer decoding) equals `meta.checksum`. A mismatch is a failed download, not a manifest.
 
 ```json
