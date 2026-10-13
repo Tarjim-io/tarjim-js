@@ -73,6 +73,14 @@ export class IndexedDbStore implements Store {
     this.id = id;
     this.db = database;
     this.locks = locks;
+    // A newer tab upgrading the database, or the browser dropping the connection, ends this store for good.
+    database.onversionchange = () => {
+      this.degraded = true;
+      database.close();
+    };
+    database.onclose = () => {
+      this.degraded = true;
+    };
   }
 
   withLock<T>(fn: () => Promise<T>): Promise<T | typeof BUSY> {
@@ -87,27 +95,42 @@ export class IndexedDbStore implements Store {
         onResult(tx.objectStore('state').get(this.id), fail, (raw) => settle(sanitiseState(raw)));
       });
     } catch {
+      this.degraded = true;
       return {};
     }
   }
 
   async updateState(change: (state: State) => State): Promise<State> {
+    // An object, not locals: the callbacks assign these after TypeScript has narrowed them.
+    const run: { attempted?: State; changeThrew: boolean } = { changeThrew: false };
     try {
       return await transact<State>(this.db, ['state'], 'readwrite', (tx, settle, fail) => {
         const store = tx.objectStore('state');
         onResult(store.get(this.id), fail, (raw) => {
-          const next = sanitiseState(change(sanitiseState(raw)));
-          store.put(mergeState(raw, next), this.id);
-          settle(next);
+          try {
+            run.attempted = sanitiseState(change(sanitiseState(raw)));
+          } catch (error) {
+            run.changeThrew = true;
+            throw error;
+          }
+          store.put(mergeState(raw, run.attempted), this.id);
+          settle(run.attempted);
         });
       });
     } catch (error) {
-      if (isQuota(error)) this.degraded = true;
-      throw error;
+      if (run.changeThrew) throw error;
+      this.degraded = true;
+      if (run.attempted) return run.attempted;
+      // The record was never read, so the change is applied to an empty state.
+      try {
+        return sanitiseState(change({}));
+      } catch {
+        return {};
+      }
     }
   }
 
-  async putSlice(hash: string, bytes: Uint8Array): Promise<'stored' | 'held' | 'quota'> {
+  async putSlice(hash: string, bytes: Uint8Array): Promise<'stored' | 'held' | 'quota' | 'unavailable'> {
     try {
       return await transact<'stored' | 'held'>(this.db, ['slices'], 'readwrite', (tx, settle, fail) => {
         const slices = tx.objectStore('slices');
@@ -120,9 +143,8 @@ export class IndexedDbStore implements Store {
         });
       });
     } catch (error) {
-      if (!isQuota(error)) throw error;
       this.degraded = true;
-      return 'quota';
+      return isQuota(error) ? 'quota' : 'unavailable';
     }
   }
 
@@ -142,6 +164,7 @@ export class IndexedDbStore implements Store {
         }
       });
     } catch {
+      this.degraded = true;
       return found;
     }
     // Hashed after the transaction: awaiting inside one would let it commit early.
@@ -182,14 +205,21 @@ export class IndexedDbStore implements Store {
           });
         }
       });
-    } catch (error) {
-      if (!isQuota(error)) throw error;
+    } catch {
       this.degraded = true;
       return false;
     }
   }
 
   async cleanup(): Promise<void> {
+    try {
+      await this.sweep();
+    } catch {
+      this.degraded = true;
+    }
+  }
+
+  private async sweep(): Promise<void> {
     await transact<void>(this.db, ['slices', 'state'], 'readwrite', (tx, _settle, fail) => {
       const slices = tx.objectStore('slices');
       onResult(tx.objectStore('state').get(this.id), fail, (raw) => {

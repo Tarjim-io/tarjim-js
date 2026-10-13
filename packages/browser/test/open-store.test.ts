@@ -197,6 +197,27 @@ describe('openStore', () => {
     db.close();
   });
 
+  it('goes degraded and answers every call without throwing once a newer opener closes its connection', async () => {
+    const factory = new IDBFactory();
+    const { store } = await openStore({ ...options, indexedDB: factory, locks: new FakeLocks() });
+    const one = slice('before the upgrade');
+    await store.putSlice(one.hash, one.bytes);
+    expect(store.degraded).toBe(false);
+
+    const upgrade = factory.open(DATABASE_NAME, 2);
+    upgrade.onupgradeneeded = () => undefined;
+    (await request(upgrade)).close();
+
+    expect(store.degraded).toBe(true);
+    expect(await store.readState()).toEqual({});
+    expect((await store.readSlices([one.hash])).size).toBe(0);
+    expect(await store.putSlice(one.hash, one.bytes)).toBe('unavailable');
+    expect(await store.writeInstall(makeInstall({ 'ui\nen': one.hash }), 'active')).toBe(false);
+    expect(await store.updateState((state) => ({ ...state, lastCheck: 5 }))).toEqual({ lastCheck: 5 });
+    await expect(store.cleanup()).resolves.toBeUndefined();
+    expect(() => store.close()).not.toThrow();
+  });
+
   it('keeps one database per format: a second open of the same factory reads the first one\'s data', async () => {
     const factory = new IDBFactory();
     const locks = new FakeLocks();
