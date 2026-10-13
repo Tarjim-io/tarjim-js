@@ -27,7 +27,7 @@
         document.querySelectorAll('[data-key]').forEach(function (element) {
           var count = element.getAttribute('data-count');
           var args = count === null ? undefined : { count: Number(count) };
-          // textContent, never innerHTML: translated values are untrusted text.
+          // textContent only: translated values are untrusted text.
           element.textContent = tarjim.t(element.getAttribute('data-key'), args);
         });
       });
