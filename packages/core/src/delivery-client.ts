@@ -240,9 +240,10 @@ export function createDeliveryClient(options: DeliveryClientOptions): DeliveryCl
       // One re-read per call: an expired signature is the only thing it can fix.
       const again = await fetchMeta(identity);
       if (again.kind !== 'received' || again.meta.checksum !== meta.checksum) return { results, meta, reread: true };
-      const signedQuery = again.meta.signedQuery;
-      if (typeof signedQuery === 'string' && signedQuery !== '' && signedQuery !== meta.signedQuery) {
-        const retried = await Promise.all(stale.map((file) => fetchSlice({ ...meta, signedQuery }, file)));
+      // The whole re-read meta is used: the base and the mode can move together with the signature.
+      const fresh = again.meta;
+      if (fresh.signedQuery !== meta.signedQuery || fresh.slicesBaseUrl !== meta.slicesBaseUrl || fresh.authenticated !== meta.authenticated) {
+        const retried = await Promise.all(stale.map((file) => fetchSlice(fresh, file)));
         stale.forEach((file, i) => results.set(file.hash, retried[i]!.outcome));
       }
       return { results, meta: again.meta, reread: true };

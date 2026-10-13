@@ -7,6 +7,7 @@ import {
   SIGNED_QUERY,
   clientFor,
   fixtureResponse,
+  hangUntilAborted,
   jsonFiles,
   problem,
   queryOf,
@@ -244,6 +245,66 @@ describe('the single re-read of the meta', () => {
     const { results } = await clientFor(release.fetch).fetchSlices(release.meta, files, IDENTITY);
 
     expect(results.get(en)).toEqual({ kind: 'network' });
+    expect(metaRequests()).toHaveLength(0);
+    expect(objectRequests(en)).toHaveLength(1);
+  });
+
+  it('retries against the slices base of the re-read meta, not the old one', async () => {
+    const { release, files, en, fr, objectRequests } = setup();
+    const stale = release.meta;
+    const moved = 'https://cdn2.example.invalid/releases/1/1/t1/slices/';
+    rejectOldSignature(release, en, () => respond(403, 'denied'));
+    release.setMeta({ signedQuery: ROTATED_SIGNED_QUERY, slicesBaseUrl: moved });
+
+    const { results, meta } = await clientFor(release.fetch).fetchSlices(stale, files, IDENTITY);
+
+    expect(results.get(en)?.kind).toBe('verified');
+    expect(results.get(fr)?.kind).toBe('verified');
+    expect(meta.slicesBaseUrl).toBe(moved);
+    expect(objectRequests(en).map((r) => r.url)).toEqual([
+      `${stale.slicesBaseUrl}${en}.json?${SIGNED_QUERY}`,
+      `${moved}${en}.json?${ROTATED_SIGNED_QUERY}`,
+    ]);
+  });
+
+  it('retries when only the slices base changed and the signature did not', async () => {
+    const { release, files, en, objectRequests } = setup();
+    const stale = release.meta;
+    const moved = 'https://cdn2.example.invalid/releases/1/1/t1/slices/';
+    release.hook(({ kind, url }) => (kind === 'object' && url.startsWith(stale.slicesBaseUrl) ? respond(403, 'denied') : undefined));
+    release.setMeta({ slicesBaseUrl: moved });
+
+    const { results } = await clientFor(release.fetch).fetchSlices(stale, files, IDENTITY);
+
+    expect(results.get(en)?.kind).toBe('verified');
+    expect(objectRequests(en).map((r) => r.url)).toContain(`${stale.slicesBaseUrl}${en}.json?${SIGNED_QUERY}`);
+    expect(objectRequests(en).at(-1)!.url).toBe(`${moved}${en}.json?${SIGNED_QUERY}`);
+  });
+
+  it('spends the re-read on a slice that timed out', async () => {
+    const { release, files, en, metaRequests, objectRequests } = setup();
+    const stale = release.meta;
+    release.hook(({ kind, name, nth, init }) =>
+      kind === 'object' && name === `${en}.json` && nth === 0 ? hangUntilAborted(init) : undefined,
+    );
+    release.setMeta({ signedQuery: ROTATED_SIGNED_QUERY });
+
+    const { results, reread } = await clientFor(release.fetch, { timeoutMs: 40 }).fetchSlices(stale, files, IDENTITY);
+
+    expect(reread).toBe(true);
+    expect(metaRequests()).toHaveLength(1);
+    expect(results.get(en)?.kind).toBe('verified');
+    expect(objectRequests(en)).toHaveLength(2);
+  });
+
+  it('does not re-read after a redirected slice answer', async () => {
+    const { release, files, en, metaRequests, objectRequests } = setup();
+    rejectAlways(release, en, () => respond(200, '{}', { redirected: true }));
+
+    const { results, reread } = await clientFor(release.fetch).fetchSlices(release.meta, files, IDENTITY);
+
+    expect(results.get(en)).toEqual({ kind: 'network' });
+    expect(reread).toBe(false);
     expect(metaRequests()).toHaveLength(0);
     expect(objectRequests(en)).toHaveLength(1);
   });
