@@ -252,6 +252,76 @@ describe('IndexedDbStore', () => {
     });
   });
 
+  describe('quota that arrives after the call returned', () => {
+    // A browser can accept the put and only refuse it when the transaction commits.
+    function failOnCommit(storeName: string): () => void {
+      const realPut = IDBObjectStore.prototype.put;
+      IDBObjectStore.prototype.put = function (this: IDBObjectStore, ...args: Parameters<typeof realPut>) {
+        const request = realPut.apply(this, args);
+        if (this.name === storeName) {
+          request.addEventListener('success', () => {
+            (request.transaction as unknown as { _abort(name: string): void })._abort('QuotaExceededError');
+          });
+        }
+        return request;
+      };
+      return () => {
+        IDBObjectStore.prototype.put = realPut;
+      };
+    }
+
+    it('answers quota and degrades when the transaction aborts after a put that succeeded', async () => {
+      const world = createIdbWorld();
+      const store = await world.open('a');
+      const restore = failOnCommit('slices');
+      try {
+        const one = slice('one');
+        expect(await store.putSlice(one.hash, one.bytes)).toBe('quota');
+        expect(store.degraded).toBe(true);
+        restore();
+        expect((await store.readSlices([one.hash])).size).toBe(0);
+      } finally {
+        restore();
+        world.dispose();
+      }
+    });
+
+    it('writes no install and degrades when the state write is refused on commit', async () => {
+      const world = createIdbWorld();
+      const store = await world.open('a');
+      const one = slice('one');
+      await store.putSlice(one.hash, one.bytes);
+      const restore = failOnCommit('state');
+      try {
+        expect(await store.writeInstall(makeInstall({ 'ui\nen': one.hash }), 'active')).toBe(false);
+        expect(store.degraded).toBe(true);
+        restore();
+        expect((await store.readState()).active).toBeUndefined();
+      } finally {
+        restore();
+        world.dispose();
+      }
+    });
+  });
+
+  describe('writeInstall', () => {
+    it('checks the slices and writes the state in one transaction', async () => {
+      const world = createIdbWorld();
+      const store = await world.open('a');
+      const one = slice('one');
+      await store.putSlice(one.hash, one.bytes);
+      const transaction = vi.spyOn(IDBDatabase.prototype, 'transaction');
+      try {
+        expect(await store.writeInstall(makeInstall({ 'ui\nen': one.hash }), 'active')).toBe(true);
+        expect(transaction).toHaveBeenCalledTimes(1);
+        expect(transaction.mock.calls[0]).toEqual([['slices', 'state'], 'readwrite']);
+      } finally {
+        transaction.mockRestore();
+        world.dispose();
+      }
+    });
+  });
+
   describe('locks', () => {
     it('asks the lock manager for tarjim:<id> and only if it is available', async () => {
       const world = createIdbWorld();
