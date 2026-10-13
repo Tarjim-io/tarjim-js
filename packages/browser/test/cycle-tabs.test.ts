@@ -1,10 +1,14 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { runCycle } from '@tarjim/core';
 import type { Store } from '@tarjim/core';
 import { hashOf, makeContext, makeRelease, makeWorld } from '../../core/test/helpers/cycle-world.js';
 import { createIdbWorld } from './helpers/idb-world.js';
 
-const world = createIdbWorld();
+// A fresh database per test: every test opens the same store name.
+let world = createIdbWorld();
+beforeEach(() => {
+  world = createIdbWorld();
+});
 afterEach(() => world.dispose());
 
 /** Two tabs: separate store instances over one IndexedDB, one lock manager, one clock and one server. */
