@@ -41,17 +41,20 @@ function Cart({ count }: { count: number }) {
 | `config` | required. The SDK's configuration. Read once; see rule 3. |
 | `fallback` | rendered until the local text is ready, for at most about a second. Default: nothing. |
 | `activateImmediately` | `true` to show a downloaded release as soon as it arrives. Default `false`: it shows at the next page load. |
-| `setDocumentLanguage` | `false` to leave `<html lang>` and `dir` alone. Default `true`. |
+| `setDocumentLanguage` | `false` to leave `<html lang>` and `dir` alone. Default `true`. The provider puts back the values the page had when it unmounts or this is switched off. |
 | `hydrating` | `true` when the provider mounts on server- or build-rendered HTML; see below. |
 | `start` | replaces how the SDK is started (for tests). Defaults to `Tarjim.start` from `@tarjim/browser`. |
 
 ### `useTarjim()`
 
-Returns `{ t, tArray, entry, language, setLanguage, checkNow, ready, pendingUpdate }`.
+Returns `{ t, tArray, entry, language, setLanguage, checkNow, activatePendingUpdate, ready, pendingUpdate }`.
 
 - `t(key, args?, options?)`, `tArray(key)` and `entry(key)` behave as in the core client.
-- `setLanguage(language)` switches language; it rejects when there is no text for it.
-- `checkNow()` asks the server for a newer release now.
+- `setLanguage(language)` switches language; it rejects when there is no text for it. Called before the
+  SDK has started, it waits for it.
+- `checkNow()` asks the server for a newer release now. It waits for the SDK the same way.
+- `activatePendingUpdate()` shows a downloaded release now and returns `true`, or returns `false` when none is
+  waiting. Switching `activateImmediately` on while a release is waiting shows it too.
 - `ready` is `true` once the local text is available.
 - `pendingUpdate` is `true` while a release is downloaded and waiting to be shown.
 
@@ -62,7 +65,8 @@ Outside a `<TarjimProvider>` the hook throws an error that names the provider.
 1. **`ready` never waits on the network.** The provider starts the SDK with `waitForContent: 0`, whatever
    the config says, so `ready` means the text already on the device (a stored release, else the
    embedded text) can be read. Until then the provider renders `fallback`; after about a second it
-   renders its children anyway, and lookups return the key names until the SDK answers.
+   renders its children anyway, and until the SDK answers, lookups return the text in `config.embedded`
+   (the key name for anything it does not hold) while `ready` stays `false`.
 2. **`t` changes identity** whenever the text it returns could change: a release is shown, or the
    language changes. A `useMemo` or `useCallback` that lists `t` recomputes exactly then. One commit
    never mixes two releases or two languages: every component under the provider reads the same one.
@@ -91,7 +95,8 @@ of slices, and the provider answers from it alone, from the first render on, so 
 render is identical to the server's. It starts no SDK, opens no store, makes no request and never
 shows a newer release; `ready` is `true` at once, `pendingUpdate` is always `false`, and `checkNow()`
 resolves to `'notDue'`. `setLanguage` works between the embedded languages only. `waitForContent` is
-ignored (with a development warning).
+ignored (with a development warning). An `embedded` that is not an array is also reported once through
+`config.onReport` with the code `embedded-invalid`, and the keys are drawn.
 
 A prebuilt page therefore gets no in-browser updates: **rebuild the site when you release.**
 
@@ -102,6 +107,7 @@ This package has no helper that writes HTML, and its lookups return plain text w
 
 ## Development warnings
 
-The warnings (a changed config, `waitForContent` while hydrating, a bad `embedded`) are guarded by
-`process.env.NODE_ENV !== 'production'`, so a bundler that replaces it removes them from a production
-build.
+The warnings (a changed config, `waitForContent` while hydrating, a bad `embedded`, a `config.language` that
+cannot be set) are stripped from production builds: each sits behind `process.env.NODE_ENV !== 'production'`,
+so a bundler that replaces that expression leaves none of their text in the bundle. Where nothing defines
+`process` at all, there are no warnings.
