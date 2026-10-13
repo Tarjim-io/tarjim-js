@@ -282,6 +282,19 @@ describe('slots the snapshot cannot read', () => {
     expect(JSON.stringify(reports)).not.toContain('secret');
   });
 
+  it.each([
+    ['a missing version', '{"bundle":"ns1","locale":"en","keys":{}}', undefined],
+    ['a version written as text', '{"schemaVersion":"1","bundle":"ns1","locale":"en","keys":{}}', undefined],
+    ['a version that is null', '{"schemaVersion":null,"bundle":"ns1","locale":"en","keys":{}}', undefined],
+    ['a version too large to be finite', '{"schemaVersion":1e400,"bundle":"ns1","locale":"en","keys":{}}', undefined],
+    ['a later version', '{"schemaVersion":3,"bundle":"ns1","locale":"en","keys":{}}', 3],
+    ['a fractional version', '{"schemaVersion":1.5,"bundle":"ns1","locale":"en","keys":{}}', 1.5],
+  ])('reports a slice with %s, naming the version only when it is a number', (_, text, version) => {
+    const { report, reports } = reporter();
+    snapshotOf(world({ ns1: DEFAULT }, { ns1: { en: text } }), { report });
+    expect(reports).toEqual([{ code: 'slice-schema', ...(version === undefined ? {} : { details: { schemaVersion: version } }) }]);
+  });
+
   it('reports nothing for slices it reads', () => {
     const { report, codes } = reporter();
     snapshotWith({ a: leaf(1, 'A') }, { report });

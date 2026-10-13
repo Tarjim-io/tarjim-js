@@ -187,8 +187,9 @@ export function createSnapshot(input: SnapshotInput): Snapshot {
     if (hash === undefined) return null;
     const value = parseJson(input.slices.get(hash));
     const slice = decodeSlice(value);
-    if (slice === null && isRecord(value) && typeof value['schemaVersion'] === 'number') {
-      report({ code: 'slice-schema', details: { schemaVersion: value['schemaVersion'] } });
+    if (slice === null && isRecord(value) && value['schemaVersion'] !== 1) {
+      const version = value['schemaVersion'];
+      report(typeof version === 'number' && Number.isFinite(version) ? { code: 'slice-schema', details: { schemaVersion: version } } : { code: 'slice-schema' });
     }
     return slice;
   };
