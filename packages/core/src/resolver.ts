@@ -188,16 +188,11 @@ function isHttpsUrl(value: string): boolean {
   }
 }
 
-export function createSnapshot(input: SnapshotInput): Snapshot {
-  const { install, locale, defaultBundle, legacyPercentPlaceholders = false } = input;
-  const report = (found: SnapshotReport): void => {
-    try {
-      input.report?.(found);
-    } catch {
-      // A reporter that throws must not take a lookup down with it.
-    }
-  };
+type Report = (found: SnapshotReport) => void;
 
+// Everything a snapshot needs from its input, read once so that the snapshot holds on to none of it.
+function serve(input: SnapshotInput, defaultKey: string, report: Report): Map<string, Source[]> {
+  const { install, locale } = input;
   const wantedKey = localeKey(locale);
   const embedded: DecodedSlice[] = [];
   for (const raw of Array.isArray(input.embedded) ? input.embedded : []) {
@@ -241,9 +236,23 @@ export function createSnapshot(input: SnapshotInput): Snapshot {
   // An embedded slice the manifest does not list has nothing to match it to a bundle, so it answers
   // the default one, after every source that was matched; that keeps a dropped or renumbered default
   // bundle readable.
-  const defaultKey = bundleKey(defaultBundle.type, defaultBundle.name);
   const unmatched = embedded.filter((slice) => !listed.has(slice.bundle)).map((slice) => sourceOf(slice, []));
   served.set(defaultKey, [...(served.get(defaultKey) ?? []), ...unmatched]);
+  return served;
+}
+
+export function createSnapshot(input: SnapshotInput): Snapshot {
+  const { locale, legacyPercentPlaceholders = false } = input;
+  const reporter = input.report;
+  const report: Report = (found) => {
+    try {
+      reporter?.(found);
+    } catch {
+      // A reporter that throws must not take a lookup down with it.
+    }
+  };
+  const defaultKey = bundleKey(input.defaultBundle.type, input.defaultBundle.name);
+  const served = serve(input, defaultKey, report);
 
   const pluralRules = pluralRulesFor(locale);
 
@@ -255,9 +264,9 @@ export function createSnapshot(input: SnapshotInput): Snapshot {
     read: (leaf: Leaf, ids: ReadonlyMap<string, { key: string; leaf: Leaf }>) => T | undefined,
   ): T | undefined {
     const requested: unknown = options?.bundle;
-    const bundle = isRecord(requested) ? requested : defaultBundle;
     const namespace: unknown = options?.namespace;
-    for (const source of served.get(bundleKey(bundle['type'], bundle['name'])) ?? []) {
+    const sources = served.get(isRecord(requested) ? bundleKey(requested['type'], requested['name']) : defaultKey);
+    for (const source of sources ?? []) {
       const names = typeof namespace === 'string' && !source.flat ? [namespace] : source.order;
       for (const name of names) {
         const leaf = source.slice.namespaces.get(name)?.get(key);
