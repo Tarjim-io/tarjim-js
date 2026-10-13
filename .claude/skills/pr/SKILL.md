@@ -10,11 +10,10 @@ and what was actually run — not a list of files or commits.
 
 ## Before pushing
 
-1. `pnpm test` scans every fixture for keys, signatures, ticket ids and hosts — it is the gate for
-   `test/fixtures/`. For the rest of the diff, run:
-   `git diff origin/main...HEAD -- . ':!test/fixtures' ':!test/fixtures.test.js' ':!scripts' ':!CLAUDE.md' ':!.claude' | grep -E '^\+' | grep -niE 'tarjim-[0-9]+-[0-9]+-|Signature=|Policy=|Key-Pair-Id=|staging|cloudfront\.net|amazonaws|TJ-[0-9]|\.env'`
-   It must print nothing. The excluded files hold the leak patterns themselves; a change to them is
-   read by eye. Hosts other than `*.invalid`, `example.com` and `api.tarjim.io` are a leak.
+1. `scripts/secret-scan.sh` passes (keys, signatures; CI runs it too) and `pnpm test` passes (its leak
+   scan covers fixtures). Then check hosts and private references in the diff:
+   `git diff origin/main...HEAD -- . ':!test/fixtures' ':!test/fixtures.test.js' ':!scripts' ':!CLAUDE.md' ':!.claude' | grep -E '^\+' | grep -niE 'staging|cloudfront\.net|amazonaws|TJ-[0-9]|\.env'`
+   must print nothing. Hosts other than `*.invalid`, `example.com` and `api.tarjim.io` are a leak.
 2. `pnpm test` is green, and the "Verified" section below quotes the real result.
 
 ## Title

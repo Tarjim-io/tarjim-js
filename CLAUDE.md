@@ -11,6 +11,10 @@ self-hosted by the site that uses it. MIT licensed. Versions stay `0.x` until th
 - Test: `pnpm test`
 - Record fixtures from a live server: `scripts/capture-fixtures.sh --help`
 - Fill a fixtures-only project with invented keys: `scripts/seed-fixture-project.sh --help`
+- Scan for keys and signatures (CI runs it): `scripts/secret-scan.sh`
+- Release: push a tag `reference-v<x.y.z>` matching `VERSION` in the file. `.github/workflows/release.yml`
+  publishes it as a pre-release with its sha256; making a release customer-facing is a separate,
+  deliberate `gh release edit <tag> --prerelease=false --latest`.
 
 ## Layout
 
@@ -20,7 +24,10 @@ self-hosted by the site that uses it. MIT licensed. Versions stay `0.x` until th
   context, as a browser would.
 - `test/fixtures/`: hand-built server answers and, under `recorded/<name>/`, recordings (see the
   README there).
-- `scripts/`: fixture tooling.
+- `scripts/`: fixture, scan and release tooling.
+- `examples/plain-html`: the embed snippet, tested by `test/examples.test.js`.
+- `PROTOCOL.md`: the public wire contract. Wire-facing only: no internal host, id, cache or rate-limit
+  detail. Change it in the same PR as any change to what the client sends or reads.
 
 ## Rules
 
