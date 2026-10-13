@@ -26,8 +26,8 @@ case "${1:-}" in
     ;;
 esac
 
-# kind<TAB>extended regex. A real key has numeric tenant, project and user ids and a long random
-# tail; a real signature, policy or key pair id is far longer than any test value.
+# kind<TAB>extended regex. A real key has non-zero numeric segments and a long random tail; a real
+# signature, policy or key pair id is far longer than any test value.
 rules=$(cat <<'RULES'
 API key	tarjim-[1-9][0-9]*-[0-9]+-[0-9]+-[A-Za-z0-9]{16,}
 CloudFront signature	Signature=[A-Za-z0-9~_-]{20,}

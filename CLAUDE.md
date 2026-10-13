@@ -13,8 +13,9 @@ self-hosted by the site that uses it. MIT licensed. Versions stay `0.x` until th
 - Fill a fixtures-only project with invented keys: `scripts/seed-fixture-project.sh --help`
 - Scan for keys and signatures (CI runs it): `scripts/secret-scan.sh`
 - Release: push a tag `reference-v<x.y.z>` matching `VERSION` in the file. `.github/workflows/release.yml`
-  publishes it as a pre-release with its sha256; making a release customer-facing is a separate,
-  deliberate `gh release edit <tag> --prerelease=false --latest`.
+  publishes it as a pre-release with its sha256, only from a commit on `main`. Making a release
+  customer-facing is a separate, deliberate step: rewrite its notes without the pre-release warning
+  (`gh release edit <tag> --notes-file …`), then `gh release edit <tag> --prerelease=false --latest`.
 
 ## Layout
 

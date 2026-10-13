@@ -24,7 +24,7 @@ function scan(content) {
 const realLookingKey = ['tarjim', '42', '7', '3', 'a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6'].join('-');
 const longSignature = 'Signature=' + 'Ab9_-~'.repeat(20);
 const longPolicy = 'Policy=' + 'eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNl'.repeat(2);
-const keyPairId = 'Key-Pair-Id=' + 'K2JCJMDEHXQW5F';
+const keyPairId = 'Key-Pair-Id=K' + 'X'.repeat(13);
 
 describe('secret scan', () => {
   it.each([
