@@ -108,6 +108,7 @@ export function controlledStream(status = 200) {
     response,
     push: (text: string) => controller.enqueue(new TextEncoder().encode(text)),
     close: () => controller.close(),
+    fail: (reason: unknown) => controller.error(reason),
   };
 }
 
