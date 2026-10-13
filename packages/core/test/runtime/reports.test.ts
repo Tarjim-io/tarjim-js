@@ -192,6 +192,7 @@ describe('unknown versions', () => {
     await until(async () => (await world.state()).active !== undefined, 'the install');
     await again(runtime);
 
+    await until(() => world.reportsOf('slice-schema').length > 0, 'the report');
     expect(runtime.t('a')).toBe('embedded a');
     expect(runtime.t('a')).not.toBe('from the future');
     expect(world.reportsOf('slice-schema')).toHaveLength(1);
