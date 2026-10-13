@@ -1,5 +1,9 @@
+import { isRecord, parseJson } from './json.js';
+import { decodeSlice } from './slice.js';
+import type { DecodedSlice, Leaf, Slice } from './slice.js';
+import { slotName } from './store.js';
 import type { Install } from './store.js';
-import type { Slice } from './slice.js';
+import type { ManifestBundle } from './types.js';
 
 export interface BundleRef {
   type: 'namespace' | 'custom';
@@ -44,10 +48,6 @@ export interface Snapshot {
   entry(key: string, options?: LookupOptions): TarjimEntry | null;
 }
 
-export function createSnapshot(_input: SnapshotInput): Snapshot {
-  throw new Error('not implemented');
-}
-
 export interface FormatOptions {
   /** The value was chosen through a plural form, so a lone printf placeholder takes `count`. */
   plural?: boolean;
@@ -55,6 +55,277 @@ export interface FormatOptions {
   legacyPercentPlaceholders?: boolean;
 }
 
-export function format(_text: string, _args: FormatArgs, _options?: FormatOptions): string {
-  throw new Error('not implemented');
+const NAMED_PLACEHOLDER = /\{([^{}]+)\}/y;
+const LEGACY_PLACEHOLDER = /%%([^%\s]+)%%/y;
+const PRINTF_PLACEHOLDER = /%(?:(\d+)\$)?([sd@])/y;
+
+// Sticky patterns match only at the given position, so no copy of the rest of the text is made.
+function matchAt(pattern: RegExp, text: string, position: number): RegExpExecArray | null {
+  pattern.lastIndex = position;
+  return pattern.exec(text);
+}
+
+const hasOwn = (object: object, name: string): boolean => Object.prototype.hasOwnProperty.call(object, name);
+
+/**
+ * One left-to-right scan; what is inserted is never scanned again.
+ *   {name}           object arguments
+ *   %s %d %@ %1$s    array arguments; %% is a literal percent sign
+ *   %%name%%         object arguments, only with legacyPercentPlaceholders
+ */
+export function format(text: string, args: FormatArgs, options: FormatOptions = {}): string {
+  const named = isRecord(args) ? args : null;
+  let positional = Array.isArray(args) ? (args as readonly unknown[]) : null;
+  // Inside a plural value the count stands in for every printf argument.
+  const countOnly = named !== null && options.plural === true && options.count !== undefined;
+  if (countOnly) positional = [options.count];
+  if (named === null && positional === null) return text;
+
+  let out = '';
+  let next = 0;
+  let i = 0;
+  while (i < text.length) {
+    const char = text.charAt(i);
+    let match: RegExpExecArray | null;
+    if (char === '{' && named && (match = matchAt(NAMED_PLACEHOLDER, text, i)) && hasOwn(named, match[1]!)) {
+      out += String(named[match[1]!]);
+      i += match[0].length;
+    } else if (char !== '%') {
+      out += char;
+      i += 1;
+    } else if (options.legacyPercentPlaceholders && named && (match = matchAt(LEGACY_PLACEHOLDER, text, i)) && hasOwn(named, match[1]!)) {
+      out += String(named[match[1]!]);
+      i += match[0].length;
+    } else if (!positional) {
+      out += '%';
+      i += 1;
+    } else if ((match = matchAt(PRINTF_PLACEHOLDER, text, i))) {
+      const index = match[1] ? Number(match[1]) - 1 : countOnly ? 0 : next++;
+      out += index >= 0 && index < positional.length ? String(positional[index]) : match[0];
+      i += match[0].length;
+    } else if (text.charAt(i + 1) === '%') {
+      out += '%';
+      i += 2;
+    } else {
+      out += '%';
+      i += 1;
+    }
+  }
+  return out;
+}
+
+// Bundle ids compare by their number ("ns7" before "ns10"), then as text.
+function compareBundleIds(a: string, b: string): number {
+  const x = a.replace(/\D/g, '').replace(/^0+/, '');
+  const y = b.replace(/\D/g, '').replace(/^0+/, '');
+  if (x.length !== y.length) return x.length - y.length;
+  if (x !== y) return x < y ? -1 : 1;
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
+const bundleKey = (type: unknown, name: unknown): string =>
+  typeof type === 'string' && typeof name === 'string' ? `${type}\n${name}` : '';
+
+/** A decoded slice with the namespaces in the order they are searched. */
+interface Source {
+  slice: DecodedSlice;
+  order: string[];
+  flat: boolean;
+}
+
+// Namespaces are searched in the order the manifest lists them, then any others, sorted; the order
+// of the keys inside the slice plays no part.
+function sourceOf(slice: DecodedSlice, listed: readonly string[]): Source {
+  const names = [...slice.namespaces.keys()];
+  const flat = names.length === 1 && names[0] === '';
+  const others = names.filter((name) => !listed.includes(name)).sort();
+  return { slice, flat, order: flat ? [''] : [...listed, ...others] };
+}
+
+function pluralRulesFor(locale: string): Intl.PluralRules | null {
+  try {
+    // A well-formed tag with no data would otherwise take the rules of the runtime's own locale.
+    return Intl.PluralRules.supportedLocalesOf(locale).length > 0 ? new Intl.PluralRules(locale) : null;
+  } catch {
+    return null;
+  }
+}
+
+const MEDIA_TYPES = ['image', 'audio/video', 'file'] as const;
+const ALLOWED_ATTRIBUTES = ['alt', 'title', 'width', 'height', 'loading'];
+
+function isHttpsUrl(value: string): boolean {
+  try {
+    return new URL(value).protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+export function createSnapshot(input: SnapshotInput): Snapshot {
+  const { install, locale, defaultBundle, legacyPercentPlaceholders = false } = input;
+  const report = (found: SnapshotReport): void => {
+    try {
+      input.report?.(found);
+    } catch {
+      // A reporter that throws must not take a lookup down with it.
+    }
+  };
+
+  const embedded: DecodedSlice[] = [];
+  for (const raw of Array.isArray(input.embedded) ? input.embedded : []) {
+    const slice = decodeSlice(raw);
+    if (slice !== null && slice.locale === locale) embedded.push(slice);
+  }
+
+  const readSlot = (bundleId: string): DecodedSlice | null => {
+    const hash = install?.slots[slotName(bundleId, locale)];
+    if (hash === undefined) return null;
+    const value = parseJson(input.slices.get(hash));
+    const slice = decodeSlice(value);
+    if (slice === null && isRecord(value) && typeof value['schemaVersion'] === 'number') {
+      report({ code: 'slice-schema', details: { schemaVersion: value['schemaVersion'] } });
+    }
+    return slice;
+  };
+
+  // What answers for each bundle, downloaded copy first. With an install only the bundles its
+  // manifest lists are served, and of those sharing a type and name only the lowest id, even when
+  // that one has nothing for this locale: a lookup never moves on to another bundle of the name.
+  const served = new Map<string, Source[]>();
+  if (install) {
+    const chosen = new Map<string, { id: string; bundle: ManifestBundle }>();
+    for (const [id, bundle] of Object.entries(install.manifest.bundles)) {
+      const key = bundleKey(bundle.type, bundle.name);
+      const current = chosen.get(key);
+      if (current === undefined || compareBundleIds(id, current.id) < 0) chosen.set(key, { id, bundle });
+    }
+    for (const [key, { id, bundle }] of chosen) {
+      const downloaded = readSlot(id);
+      const copies = embedded.filter((slice) => slice.bundle === id);
+      served.set(key, (downloaded ? [downloaded, ...copies] : copies).map((slice) => sourceOf(slice, bundle.namespaces)));
+    }
+  } else {
+    // Embedded slices carry no manifest to match them to a bundle, so they answer the default one.
+    served.set(bundleKey(defaultBundle.type, defaultBundle.name), embedded.map((slice) => sourceOf(slice, [])));
+  }
+
+  const pluralRules = pluralRulesFor(locale);
+
+  // Runs `read` over each source that holds the key, downloaded first; a source answers by
+  // returning anything but undefined.
+  function find<T>(
+    key: string,
+    options: LookupOptions | undefined,
+    read: (leaf: Leaf, slice: DecodedSlice) => T | undefined,
+  ): T | undefined {
+    const requested: unknown = options?.bundle;
+    const bundle = isRecord(requested) ? requested : defaultBundle;
+    const namespace: unknown = options?.namespace;
+    for (const source of served.get(bundleKey(bundle['type'], bundle['name'])) ?? []) {
+      const names = typeof namespace === 'string' && !source.flat ? [namespace] : source.order;
+      for (const name of names) {
+        const leaf = source.slice.namespaces.get(name)?.get(key);
+        if (leaf === undefined) continue;
+        const answer = read(leaf, source.slice);
+        if (answer !== undefined) return answer;
+        break;
+      }
+    }
+    return undefined;
+  }
+
+  // A listed child counts only when its name is "<key>.<form>"; a key that merely has such a name
+  // is not a plural form.
+  function pluralChild(slice: DecodedSlice, leaf: Leaf, key: string, form: string): Leaf | null {
+    for (const id of leaf.pluralChildIds ?? []) {
+      const child = slice.byId.get(id);
+      if (child !== undefined && child.key === `${key}.${form}`) return child.leaf;
+    }
+    return null;
+  }
+
+  function translate(key: string, args: FormatArgs | undefined, options: LookupOptions | undefined): string {
+    const count = isRecord(args) ? args['count'] : undefined;
+    const answer = find(key, options, (leaf, slice) => {
+      if (leaf.pluralChildIds && args !== undefined && typeof count === 'number') {
+        const form = count === 0 && pluralChild(slice, leaf, key, 'zero') ? 'zero' : pluralRules?.select(count) ?? 'other';
+        const child = pluralChild(slice, leaf, key, form) ?? pluralChild(slice, leaf, key, 'other');
+        const value = child?.value || leaf.value;
+        return value ? format(value, args, { plural: true, count, legacyPercentPlaceholders }) : undefined;
+      }
+      if (!leaf.value) return undefined;
+      return args === undefined ? leaf.value : format(leaf.value, args, { legacyPercentPlaceholders });
+    });
+    return answer ?? key;
+  }
+
+  function translateArray(key: string, options: LookupOptions | undefined): string[] {
+    return (
+      find(key, options, (leaf, slice) => {
+        const values: string[] = [];
+        for (const id of leaf.arrayChildIds ?? []) {
+          const value = slice.byId.get(id)?.leaf.value;
+          if (value !== undefined) values.push(value);
+        }
+        return values.length > 0 ? values : undefined;
+      }) ?? []
+    );
+  }
+
+  function entryOf(key: string, options: LookupOptions | undefined): TarjimEntry | null {
+    return (
+      find(key, options, (leaf): TarjimEntry | null | undefined => {
+        if (!leaf.value || leaf.id === undefined) return undefined;
+        const attributes: Record<string, string> = {};
+        let dropped = 0;
+        for (const [name, value] of Object.entries(leaf.attributes ?? {})) {
+          if (ALLOWED_ATTRIBUTES.includes(name) && typeof value === 'string') attributes[name] = value;
+          else dropped++;
+        }
+        // Only a count: a dropped name comes from the server and may carry anything.
+        if (dropped > 0) report({ code: 'attribute-dropped', details: { count: dropped } });
+        const type = MEDIA_TYPES.find((media) => media === leaf.type) ?? 'text';
+        // The page puts a media value into src or href, where a script or data URL would run.
+        if (type !== 'text' && !isHttpsUrl(leaf.value)) {
+          report({ code: 'media-url-rejected' });
+          return null;
+        }
+        return {
+          value: leaf.value,
+          id: leaf.id,
+          type,
+          attributes: Object.keys(attributes).length > 0 ? attributes : null,
+          className: leaf.className ?? null,
+        };
+      }) ?? null
+    );
+  }
+
+  // No lookup throws, whatever the slices or the arguments hold.
+  const snapshot: Snapshot = {
+    language: locale,
+    t(key, args, options) {
+      try {
+        return translate(String(key), args, options);
+      } catch {
+        return typeof key === 'string' ? key : '';
+      }
+    },
+    tArray(key, options) {
+      try {
+        return translateArray(String(key), options);
+      } catch {
+        return [];
+      }
+    },
+    entry(key, options) {
+      try {
+        return entryOf(String(key), options);
+      } catch {
+        return null;
+      }
+    },
+  };
+  return Object.freeze(snapshot);
 }
