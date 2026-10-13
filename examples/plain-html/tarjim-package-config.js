@@ -4,7 +4,6 @@ Tarjim.start({
   appVersion: '1.0.0', // your site's release; change it on every deploy
   defaultBundle: { type: 'namespace', name: 'default' },
   fallbackLanguage: 'en',
-  language: document.documentElement.lang,
   waitForContent: 3000, // wait up to 3 seconds for the first download, then show what is held
 }).then(function (tarjim) {
   function render() {
