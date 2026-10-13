@@ -78,6 +78,13 @@ describe('backoffSeconds', () => {
 describe('dueAt', () => {
   const polled = (overrides: State = {}): State => ({ lastCheck: NOW - seconds(100), lastPollAfter: 900, ...overrides });
 
+  it('never schedules further than a day ahead, however far a backoff reaches', () => {
+    const far = NOW + seconds(10 * 86400);
+    expect(dueAt({ notBefore: far }, NOW, 0)).toBe(NOW + seconds(86400));
+    expect(dueAt({ lastCheck: NOW - seconds(5000), lastPollAfter: 900, notBefore: far }, NOW, 0)).toBe(NOW + seconds(86400));
+    expect(dueAt({ lastCheck: NOW + seconds(100_000), lastPollAfter: 900, notBefore: far }, NOW, 0)).toBe(NOW + seconds(86400));
+  });
+
   it('is now when there has been no check', () => {
     expect(dueAt({}, NOW, 0)).toBe(NOW);
     expect(dueAt({ lastPollAfter: 900 }, NOW, 0.7)).toBe(NOW);

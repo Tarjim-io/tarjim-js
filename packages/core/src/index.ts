@@ -15,6 +15,7 @@ export {
   sanitiseInstall,
   sanitiseState,
   referencedHashes,
+  parseSlot,
   slotName,
   storeId,
   withInstall,

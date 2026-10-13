@@ -59,6 +59,11 @@ export function slotName(bundleId: string, locale: string): string {
   return `${bundleId}\n${locale}`;
 }
 
+export function parseSlot(name: string): { bundle: string; locale: string } | undefined {
+  const split = name.indexOf('\n');
+  return split < 0 ? undefined : { bundle: name.slice(0, split), locale: name.slice(split + 1) };
+}
+
 export async function storeId(deliveryUrl: string, apiKey: string): Promise<string> {
   return sha256Hex(new TextEncoder().encode(`${deliveryUrl}\n${apiKey}`));
 }
