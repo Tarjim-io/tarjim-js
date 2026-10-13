@@ -35,8 +35,8 @@ X-Tarjim-Api-Version: 2026-07-29
   `appVersion` is the version of YOUR site or app, not of the client. It must change with every
   release you ship.
 - Optional identity parameters, all ignored if malformed: `platform` (e.g. `web`), `sdkVersion`,
-  `release` (the release id you hold, `0` for none), `language` (the locale you serve). Two more need
-  care:
+  `release` (the release id you hold, `0` for none), `language` (the locale you serve), `osVersion`,
+  `appBuild`. Two more need care:
   - Send `pollSeconds` only if your client really waits that long between checks. A client that
     checks on every page load must not send it.
   - Send `installId` only with a stored per-browser identifier, and only where your consent rules
