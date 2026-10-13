@@ -132,7 +132,11 @@ export function TarjimProvider({
   // Everything that must outlive a render without causing one. The configuration is read here, once.
   const [own] = useState(() => {
     const local = hydrating ? embeddedOnly(config) : undefined;
+    // Settled by the start effect, which runs after those of the children: an earlier call waits here.
+    let open!: (starting: Promise<Source>) => void;
+    const wait = new Promise<Source>((resolve) => (open = resolve));
     const state = {
+      open,
       config,
       hydrating,
       local,
@@ -143,9 +147,8 @@ export function TarjimProvider({
       gone: false,
       runtime: undefined as Runtime | undefined,
       started: local && (Promise.resolve(local) as Promise<Source>),
-      // A call made before the SDK has started waits for it instead of failing.
-      setLanguage: (language: string): Promise<void> => (state.started ?? Promise.reject(new Error('Tarjim has not started.'))).then((source) => source.setLanguage(language)),
-      checkNow: (): Promise<CheckResult> => (state.started ?? Promise.reject(new Error('Tarjim has not started.'))).then((source) => source.checkNow()),
+      setLanguage: (language: string): Promise<void> => (state.started ?? wait).then((source) => source.setLanguage(language)),
+      checkNow: (): Promise<CheckResult> => (state.started ?? wait).then((source) => source.checkNow()),
     };
     return state;
   });
@@ -186,6 +189,7 @@ export function TarjimProvider({
       // second run finds `started`, and the clean-up in between had no runtime to stop, only a flag to lift.
       const starting = start({ ...own.config, waitForContent: 0 });
       own.started = starting;
+      own.open(starting);
       starting.then(
         (runtime) => {
           if (own.gone) return runtime.stop();

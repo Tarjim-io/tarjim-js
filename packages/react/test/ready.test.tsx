@@ -4,10 +4,10 @@ import { describe, expect, it, vi } from 'vitest';
 
 import type { Tarjim } from '@tarjim/core';
 import { TarjimProvider, useTarjim } from '../src/index.js';
-import { Component } from 'react';
+import { Component, useEffect } from 'react';
 import type { ReactNode } from 'react';
 import { render } from '@testing-library/react';
-import { Reader, capture, mount, rig, useCleanSlate, within } from './helpers/rig.js';
+import { Reader, capture, embedded, mount, rig, useCleanSlate, within } from './helpers/rig.js';
 
 vi.mock('node:url', () => import('./helpers/node-url-mock.js'));
 
@@ -47,30 +47,20 @@ describe('before the local text is ready', () => {
     await screen.findByTestId('reader');
   });
 
-  it('gives up waiting after about a second and renders the children with the keys', async () => {
+  it('answers with the keys after that second when there is no embedded text', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     const never = vi.fn(() => new Promise<Tarjim>(() => undefined));
-    const api = capture();
     const r = rig();
     mount(
-      <TarjimProvider config={r.world.config({ language: 'en' })} start={never} fallback={<p>loading</p>}>
+      <TarjimProvider config={r.world.config({ language: 'en', embedded: undefined })} start={never}>
         <Reader />
-        <api.Capture />
       </TarjimProvider>,
     );
 
     await act(async () => {
-      vi.advanceTimersByTime(900);
+      vi.advanceTimersByTime(1100);
     });
-    expect(screen.getByText('loading')).toBeTruthy();
-    expect(screen.queryByTestId('reader')).toBeNull();
-
-    await act(async () => {
-      vi.advanceTimersByTime(400);
-    });
-    expect(screen.queryByText('loading')).toBeNull();
-    expect(screen.getByTestId('reader').textContent).toMatch(/^a\|/);
-    expect(api.latest().ready).toBe(false);
+    expect(screen.getByTestId('reader').textContent).toBe('a|en');
   });
 
   it('does not wait for the network, whatever waitForContent the app asked for', async () => {
@@ -99,6 +89,36 @@ describe('before the local text is ready', () => {
     );
     await screen.findByTestId('reader');
     expect(r.configs[0]).toMatchObject({ language: 'fr', appVersion: '2.0.0', deliveryUrl: config.deliveryUrl, apiKey: config.apiKey });
+  });
+});
+
+describe('a call made before the SDK has started', () => {
+  it('waits for the start instead of failing, for setLanguage and checkNow', async () => {
+    const r = rig();
+    const open = r.holdStart();
+    const calls: { language?: Promise<void>; check?: Promise<string> } = {};
+    // A child's effect runs before the provider's own, so the provider has not started anything yet.
+    function Early() {
+      const { setLanguage, checkNow } = useTarjim();
+      useEffect(() => {
+        calls.language = setLanguage('fr');
+        calls.check = checkNow();
+      }, []);
+      return <p>early</p>;
+    }
+    mount(
+      <TarjimProvider config={r.world.config({ language: 'en' })} start={r.start} fallback={<Early />}>
+        <Reader />
+      </TarjimProvider>,
+    );
+    expect(calls.language).toBeDefined();
+
+    open();
+    await act(async () => {
+      await calls.language;
+      await expect(calls.check).resolves.toMatch(/^(noChange|notDue|downloaded)$/);
+    });
+    expect(r.runtime().language).toBe('fr');
   });
 });
 
