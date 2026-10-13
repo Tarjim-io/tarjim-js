@@ -9,6 +9,7 @@
   },
   "scripts": {
     "test": "vitest run",
+    "test:react18": "vitest run --config packages/react/vitest.react18.config.js",
     "typecheck": "pnpm -r typecheck",
     "build": "pnpm -r build",
     "size": "node scripts/size-budget.mjs",
@@ -19,6 +20,7 @@
     "@types/node": "24.19.0",
     "esbuild": "0.28.2",
     "fake-indexeddb": "6.2.5",
+    "jsdom": "28.1.0",
     "tsup": "8.5.1",
     "typescript": "5.9.3",
     "vitest": "4.1.11"

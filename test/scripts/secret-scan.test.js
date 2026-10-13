@@ -51,7 +51,8 @@ describe('secret scan', () => {
     expect(scan(`${content}\n`)).toEqual({ found: false, output: '' });
   });
 
-  it('passes every file tracked in this repository', () => {
+  // Scans every tracked file, which takes seconds while the rest of the suite runs in parallel.
+  it('passes every file tracked in this repository', { timeout: 30_000 }, () => {
     expect(() => execFileSync('bash', [SCRIPT], { cwd: ROOT, stdio: 'pipe' })).not.toThrow();
   });
 });
