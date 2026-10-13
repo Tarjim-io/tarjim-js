@@ -240,8 +240,15 @@ export function TarjimProvider({
   const language = source?.language ?? config.language ?? config.fallbackLanguage;
   useEffect(() => {
     if (!source || !setDocumentLanguage) return;
-    document.documentElement.lang = language;
-    document.documentElement.dir = direction(language);
+    const root = document.documentElement;
+    const before = { lang: root.getAttribute('lang'), dir: root.getAttribute('dir') };
+    const put = (name: 'lang' | 'dir', value: string | null) => (value === null ? root.removeAttribute(name) : root.setAttribute(name, value));
+    put('lang', language);
+    put('dir', direction(language));
+    return () => {
+      put('lang', before.lang);
+      put('dir', before.dir);
+    };
   }, [source, language, setDocumentLanguage]);
 
   // `version` is only listed so that a changed snapshot makes a new value, and with it a new `t`.

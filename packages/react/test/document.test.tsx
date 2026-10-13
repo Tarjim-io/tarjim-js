@@ -82,3 +82,76 @@ describe('the document language', () => {
     expect(root.hasAttribute('dir')).toBe(false);
   });
 });
+
+describe('the document language after the provider is gone', () => {
+  it('goes back to what the page had when the provider unmounts', async () => {
+    const { r, config } = arabicRig();
+    root.lang = 'de';
+    root.dir = 'ltr';
+    const view = mount(
+      <TarjimProvider config={config('ar')} start={r.start}>
+        <Reader />
+      </TarjimProvider>,
+    );
+    await waitFor(() => expect([root.lang, root.dir]).toEqual(['ar', 'rtl']), { timeout: 1000 });
+
+    view.unmount();
+
+    expect([root.lang, root.dir]).toEqual(['de', 'ltr']);
+  });
+
+  it('removes the attributes it added when the page had none', async () => {
+    const { r, config } = arabicRig();
+    const view = mount(
+      <TarjimProvider config={config('en')} start={r.start}>
+        <Reader />
+      </TarjimProvider>,
+    );
+    await waitFor(() => expect(root.lang).toBe('en'), { timeout: 1000 });
+
+    view.unmount();
+
+    expect(root.hasAttribute('lang')).toBe(false);
+    expect(root.hasAttribute('dir')).toBe(false);
+  });
+
+  it('goes back when setDocumentLanguage is switched off, and applies again when switched on', async () => {
+    const { r, config } = arabicRig();
+    root.lang = 'de';
+    const tree = (on: boolean) => (
+      <TarjimProvider config={cfg} start={r.start} setDocumentLanguage={on}>
+        <Reader />
+      </TarjimProvider>
+    );
+    const cfg = config('ar');
+    const view = mount(tree(true));
+    await waitFor(() => expect(root.lang).toBe('ar'), { timeout: 1000 });
+
+    view.rerender(tree(false));
+    expect(root.lang).toBe('de');
+    expect(root.hasAttribute('dir')).toBe(false);
+
+    view.rerender(tree(true));
+    expect([root.lang, root.dir]).toEqual(['ar', 'rtl']);
+  });
+
+  it('keeps what the page had through a language change, not an intermediate value', async () => {
+    const { r, config } = arabicRig();
+    root.lang = 'de';
+    const api = capture();
+    const view = mount(
+      <TarjimProvider config={config('en')} start={r.start}>
+        <api.Capture />
+      </TarjimProvider>,
+    );
+    await waitFor(() => expect(api.latest().ready).toBe(true), { timeout: 1000 });
+    await act(async () => {
+      await api.latest().setLanguage('ar');
+    });
+    expect([root.lang, root.dir]).toEqual(['ar', 'rtl']);
+
+    view.unmount();
+
+    expect(root.lang).toBe('de');
+  });
+});
