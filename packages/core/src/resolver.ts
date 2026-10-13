@@ -217,7 +217,7 @@ export function createSnapshot(input: SnapshotInput): Snapshot {
   function find<T>(
     key: string,
     options: LookupOptions | undefined,
-    read: (leaf: Leaf, slice: DecodedSlice) => T | undefined,
+    read: (leaf: Leaf, ids: ReadonlyMap<string, { key: string; leaf: Leaf }>) => T | undefined,
   ): T | undefined {
     const requested: unknown = options?.bundle;
     const bundle = isRecord(requested) ? requested : defaultBundle;
@@ -227,7 +227,7 @@ export function createSnapshot(input: SnapshotInput): Snapshot {
       for (const name of names) {
         const leaf = source.slice.namespaces.get(name)?.get(key);
         if (leaf === undefined) continue;
-        const answer = read(leaf, source.slice);
+        const answer = read(leaf, source.slice.byId.get(name) ?? new Map());
         if (answer !== undefined) return answer;
         break;
       }
@@ -237,9 +237,9 @@ export function createSnapshot(input: SnapshotInput): Snapshot {
 
   // A listed child counts only when its name is "<key>.<form>"; a key that merely has such a name
   // is not a plural form.
-  function pluralChild(slice: DecodedSlice, leaf: Leaf, key: string, form: string): Leaf | null {
+  function pluralChild(ids: ReadonlyMap<string, { key: string; leaf: Leaf }>, leaf: Leaf, key: string, form: string): Leaf | null {
     for (const id of leaf.pluralChildIds ?? []) {
-      const child = slice.byId.get(id);
+      const child = ids.get(id);
       if (child !== undefined && child.key === `${key}.${form}`) return child.leaf;
     }
     return null;
@@ -247,10 +247,10 @@ export function createSnapshot(input: SnapshotInput): Snapshot {
 
   function translate(key: string, args: FormatArgs | undefined, options: LookupOptions | undefined): string {
     const count = isRecord(args) ? args['count'] : undefined;
-    const answer = find(key, options, (leaf, slice) => {
+    const answer = find(key, options, (leaf, ids) => {
       if (leaf.pluralChildIds && args !== undefined && typeof count === 'number') {
-        const form = count === 0 && pluralChild(slice, leaf, key, 'zero') ? 'zero' : pluralRules?.select(count) ?? 'other';
-        const value = pluralChild(slice, leaf, key, form)?.value || pluralChild(slice, leaf, key, 'other')?.value || leaf.value;
+        const form = count === 0 && pluralChild(ids, leaf, key, 'zero') ? 'zero' : pluralRules?.select(count) ?? 'other';
+        const value = pluralChild(ids, leaf, key, form)?.value || pluralChild(ids, leaf, key, 'other')?.value || leaf.value;
         return value ? format(value, args, { plural: true, count, legacyPercentPlaceholders }) : undefined;
       }
       if (!leaf.value) return undefined;
@@ -261,10 +261,10 @@ export function createSnapshot(input: SnapshotInput): Snapshot {
 
   function translateArray(key: string, options: LookupOptions | undefined): string[] {
     return (
-      find(key, options, (leaf, slice) => {
+      find(key, options, (leaf, ids) => {
         const values: string[] = [];
         for (const id of leaf.arrayChildIds ?? []) {
-          const value = slice.byId.get(id)?.leaf.value;
+          const value = ids.get(id)?.leaf.value;
           if (value !== undefined) values.push(value);
         }
         return values.length > 0 ? values : undefined;

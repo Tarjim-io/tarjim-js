@@ -28,8 +28,8 @@ export interface DecodedSlice {
   locale: string;
   /** Flat slices have one namespace, keyed ''. */
   namespaces: Map<string, Map<string, Leaf>>;
-  /** The first leaf with each id, for finding the children a parent lists. */
-  byId: Map<string, { key: string; leaf: Leaf }>;
+  /** Per namespace, the first leaf with each id: a parent's children are looked up in its own namespace only. */
+  byId: Map<string, Map<string, { key: string; leaf: Leaf }>>;
 }
 
 const idOf = (value: unknown): string | undefined =>
@@ -76,11 +76,13 @@ export function decodeSlice(value: unknown): DecodedSlice | null {
     } else {
       namespaces.set('', decodeLeaves(value['keys']));
     }
-    const byId = new Map<string, { key: string; leaf: Leaf }>();
-    for (const leaves of namespaces.values()) {
+    const byId = new Map<string, Map<string, { key: string; leaf: Leaf }>>();
+    for (const [name, leaves] of namespaces) {
+      const ids = new Map<string, { key: string; leaf: Leaf }>();
       for (const [key, leaf] of leaves) {
-        if (leaf.id !== undefined && !byId.has(leaf.id)) byId.set(leaf.id, { key, leaf });
+        if (leaf.id !== undefined && !ids.has(leaf.id)) ids.set(leaf.id, { key, leaf });
       }
+      byId.set(name, ids);
     }
     return {
       bundle: typeof value['bundle'] === 'string' ? value['bundle'] : '',

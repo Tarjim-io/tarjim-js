@@ -202,20 +202,34 @@ describe('leaves', () => {
 });
 
 describe('looking a leaf up by id', () => {
+  const idsOf = (slice: ReturnType<typeof decoded>, namespace = '') => slice.byId.get(namespace);
+
   it('finds each leaf by its id with the key it was sent under', () => {
     const slice = decoded(flatSlice('ns1', 'en', { a: leaf(1, 'A'), b: leaf(2, 'B') }));
-    expect(slice.byId.get('1')?.key).toBe('a');
-    expect(slice.byId.get('2')?.leaf.value).toBe('B');
-    expect(slice.byId.get('3')).toBeUndefined();
+    expect(idsOf(slice)?.get('1')?.key).toBe('a');
+    expect(idsOf(slice)?.get('2')?.leaf.value).toBe('B');
+    expect(idsOf(slice)?.get('3')).toBeUndefined();
   });
 
   it('lets the first leaf with an id keep it', () => {
     const slice = decoded(flatSlice('ns1', 'en', { first: leaf(1, 'one'), second: leaf(1, 'again') }));
-    expect(slice.byId.get('1')?.key).toBe('first');
+    expect(idsOf(slice)?.get('1')?.key).toBe('first');
   });
 
   it('leaves a leaf with an unusable id out of the index', () => {
     const slice = decoded(flatSlice('ns1', 'en', { a: { id: { a: 1 }, value: 'v' }, b: { id: null, value: 'v' }, c: { value: 'v' } }));
-    expect(slice.byId.size).toBe(0);
+    expect(idsOf(slice)?.size ?? 0).toBe(0);
+  });
+
+  it('keeps one index per namespace, so the same id in two namespaces names two leaves', () => {
+    const slice = decoded({
+      schemaVersion: 1,
+      bundle: 'c1',
+      locale: 'en',
+      namespaces: { a: { first: leaf(1, 'from a') }, b: { second: leaf(1, 'from b'), only: leaf(2, 'only b') } },
+    });
+    expect(idsOf(slice, 'a')?.get('1')?.leaf.value).toBe('from a');
+    expect(idsOf(slice, 'b')?.get('1')?.leaf.value).toBe('from b');
+    expect(idsOf(slice, 'a')?.get('2')).toBeUndefined();
   });
 });

@@ -434,6 +434,38 @@ describe('plural parents and children', () => {
   });
 });
 
+describe('children belong to the namespace of their parent', () => {
+  const nested = () =>
+    world(
+      { c1: { ...CUSTOM_UI, layout: 'nested', namespaces: ['a', 'b'] } },
+      {
+        c1: {
+          en: {
+            schemaVersion: 1,
+            bundle: 'c1',
+            locale: 'en',
+            namespaces: {
+              a: {
+                cart: leaf(1, 'PARENT', { plural_child_keys: [2] }),
+                menu: leaf(3, '', { string_array_child_keys: [4] }),
+              },
+              b: { 'cart.other': leaf(2, 'child in b'), 'menu.0': leaf(4, 'item in b') },
+            },
+          },
+        },
+      },
+    );
+  const ui = { bundle: CUSTOM_UI, namespace: 'a' } as const;
+
+  it('does not take a plural child from another namespace', () => {
+    expect(snapshotOf(nested()).t('cart', { count: 5 }, ui)).toBe('PARENT');
+  });
+
+  it('does not take a string array child from another namespace', () => {
+    expect(snapshotOf(nested()).tArray('menu', ui)).toEqual([]);
+  });
+});
+
 describe('plural forms follow the text locale', () => {
   const forms = { zero: 'Z0', one: 'O1', two: 'T2', few: 'F3', many: 'M4', other: 'X5' };
   const keys = {
