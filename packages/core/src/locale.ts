@@ -36,6 +36,15 @@ interface Parsed {
   script: string;
 }
 
+/** The case-insensitive form two spellings of one locale share; a malformed tag only loses its case. */
+export function localeKey(tag: string): string {
+  try {
+    return new Intl.Locale(tag).baseName.toLowerCase();
+  } catch {
+    return tag.toLowerCase();
+  }
+}
+
 function parse(tag: string): Parsed | null {
   try {
     const locale = new Intl.Locale(tag);

@@ -82,6 +82,30 @@ describe('one locale only', () => {
   });
 });
 
+describe('locale spelling', () => {
+  it('finds the downloaded slice under the manifest spelling of the selected locale', () => {
+    const w = world({ ns1: DEFAULT }, { ns1: { 'pt-BR': flatSlice('ns1', 'pt-BR', { k: leaf(1, 'olá') }) } });
+    expect(snapshotOf(w, { locale: 'pt-br' }).t('k')).toBe('olá');
+    expect(snapshotOf(w, { locale: 'PT-BR' }).t('k')).toBe('olá');
+  });
+
+  it('uses an embedded slice whose locale differs from the selected one only in case', () => {
+    const embedded = [flatSlice('ns1', 'pt-br', { k: leaf(1, 'embedded') })];
+    expect(snapshotOf(null, { embedded, locale: 'pt-BR' }).t('k')).toBe('embedded');
+    expect(snapshotOf(null, { embedded: [flatSlice('ns1', 'EN', { k: leaf(1, 'upper') })], locale: 'en' }).t('k')).toBe('upper');
+  });
+
+  it('still leaves out an embedded slice of another locale', () => {
+    const embedded = [flatSlice('ns1', 'pt-PT', { k: leaf(1, 'portugal') })];
+    expect(snapshotOf(null, { embedded, locale: 'pt-BR' }).t('k')).toBe('k');
+  });
+
+  it('reports the locale as it was given', () => {
+    const w = world({ ns1: DEFAULT }, { ns1: { 'pt-BR': flatSlice('ns1', 'pt-BR', {}) } });
+    expect(snapshotOf(w, { locale: 'pt-br' }).language).toBe('pt-br');
+  });
+});
+
 describe('which bundle answers', () => {
   it('lets the lowest numeric bundle id win when bundles share type and name', () => {
     const w = world(

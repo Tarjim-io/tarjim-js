@@ -1,4 +1,5 @@
 import { isRecord, parseJson } from './json.js';
+import { localeKey } from './locale.js';
 import { decodeSlice } from './slice.js';
 import type { DecodedSlice, Leaf, Slice } from './slice.js';
 import { slotName } from './store.js';
@@ -172,14 +173,17 @@ export function createSnapshot(input: SnapshotInput): Snapshot {
     }
   };
 
+  const wantedKey = localeKey(locale);
   const embedded: DecodedSlice[] = [];
   for (const raw of Array.isArray(input.embedded) ? input.embedded : []) {
     const slice = decodeSlice(raw);
-    if (slice !== null && slice.locale === locale) embedded.push(slice);
+    if (slice !== null && localeKey(slice.locale) === wantedKey) embedded.push(slice);
   }
 
   const readSlot = (bundleId: string): DecodedSlice | null => {
-    const hash = install?.slots[slotName(bundleId, locale)];
+    // The slot is named with the manifest's spelling of the locale, which may differ in case from ours.
+    const spelling = Object.keys(install?.manifest.slices[bundleId] ?? {}).find((name) => localeKey(name) === wantedKey) ?? locale;
+    const hash = install?.slots[slotName(bundleId, spelling)];
     if (hash === undefined) return null;
     const value = parseJson(input.slices.get(hash));
     const slice = decodeSlice(value);
