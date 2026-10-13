@@ -7,6 +7,8 @@ export interface LockManagerLike {
   request<T>(name: string, options: { ifAvailable: boolean }, callback: (lock: unknown) => Promise<T>): Promise<T>;
 }
 
+export type KeyRangeLike = Pick<typeof IDBKeyRange, 'bound'>;
+
 type Settle<T> = (value: T) => void;
 type Fail = (error: unknown) => void;
 
@@ -70,11 +72,13 @@ export class IndexedDbStore implements Store {
   degraded = false;
   private readonly db: IDBDatabase;
   private readonly locks: LockManagerLike | undefined;
+  private readonly keyRange: KeyRangeLike | undefined;
 
-  constructor(id: string, database: IDBDatabase, locks?: LockManagerLike) {
+  constructor(id: string, database: IDBDatabase, locks?: LockManagerLike, keyRange?: KeyRangeLike) {
     this.id = id;
     this.db = database;
     this.locks = locks;
+    this.keyRange = keyRange;
     // A newer tab upgrading the database, or the browser dropping the connection, ends this store for good.
     database.onversionchange = () => {
       this.degraded = true;
@@ -241,15 +245,29 @@ export class IndexedDbStore implements Store {
       onResult(tx.objectStore('state').get(this.id), fail, (raw) => {
         const state = sanitiseState(raw);
         const keep = new Set([state.active, state.pending].flatMap((install) => (install ? installHashes(install) : [])));
-        // Keys are listed and filtered rather than range-bound: a key range needs the IDBKeyRange global,
-        // which does not exist next to an injected factory.
-        onResult(slices.getAllKeys(), fail, (keys) => {
+        // The id check stays even with a range: it is what keeps a sibling's slices safe if the range is wrong.
+        const range = this.ownKeys();
+        onResult(range ? slices.getAllKeys(range) : slices.getAllKeys(), fail, (keys) => {
           for (const key of keys) {
             if (Array.isArray(key) && key[0] === this.id && !keep.has(key[1] as string)) slices.delete(key);
           }
         });
       });
     });
+  }
+
+  // Without a key range implementation the whole store is listed and filtered instead.
+  private ownKeys(): IDBKeyRange | undefined {
+    let range = this.keyRange;
+    if (!range) {
+      try {
+        range = globalThis.IDBKeyRange;
+      } catch {
+        // reading the global can throw in a sandboxed frame
+      }
+    }
+    // [id, []] sorts after every [id, <string>], since arrays sort after strings.
+    return range?.bound([this.id], [this.id, []]);
   }
 
   close(): void {
