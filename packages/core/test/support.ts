@@ -127,3 +127,4 @@ export const headersOf = fake.headersOf as unknown as (init: RequestInit | undef
 export const queryOf = fake.queryOf as unknown as (url: string) => Record<string, string>;
 export const hangUntilAborted = fake.hangUntilAborted as unknown as (init: RequestInit | undefined) => Promise<never>;
 export const sha256Hex = fake.sha256Hex as unknown as (bytes: Uint8Array | string) => string;
+
