@@ -21,6 +21,7 @@ interface Answer {
   retryAfter?: number;
   bytes?: Uint8Array;
   opaque?: boolean;
+  tooLarge?: boolean;
 }
 
 type Failure = Exclude<ManifestOutcome | SliceOutcome, { kind: 'verified' | 'checksumMismatch' | 'unreadable' | 'hashMismatch' | 'sizeMismatch' }>;
@@ -29,6 +30,8 @@ const QUERY = /^[A-Za-z0-9\-._~!$&'()*+,;=:@/?%]+$/;
 const UNRELEASED = ['delivery.stage_unreleased', 'delivery.track_unreleased', 'delivery.not_published'];
 const CONFIGURATION = [400, 401, 403, 404];
 const STALE_SIGNATURE = [403, 404, 503];
+const META_LIMIT = 1024 * 1024;
+const MANIFEST_LIMIT = 8 * 1024 * 1024;
 
 const opt = <K extends string, V>(name: K, value: V | undefined) =>
   (value === undefined ? {} : { [name]: value }) as { [P in K]?: V };
@@ -62,7 +65,8 @@ export function createDeliveryClient(options: DeliveryClientOptions): DeliveryCl
   const keyHeaders = { 'X-Tarjim-Apikey': apiKey, 'X-Tarjim-Api-Version': API_VERSION };
 
   // The timeout is inactivity, not total time: it is re-armed whenever bytes arrive.
-  async function get(url: string, extra: RequestInit, readBody: (status: number) => boolean): Promise<Answer> {
+  // A body larger than `limit` is cut off, not buffered: `tooLarge` is set and no bytes are returned.
+  async function get(url: string, extra: RequestInit, readBody: (status: number) => boolean, limit: number): Promise<Answer> {
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
     const arm = () => {
@@ -86,15 +90,24 @@ export function createDeliveryClient(options: DeliveryClientOptions): DeliveryCl
       if (response.body) {
         const reader = response.body.getReader();
         const chunks: Uint8Array[] = [];
+        let total = 0;
         for (;;) {
           const { done, value } = await guard(reader.read());
           if (done) break;
+          total += value.length;
+          if (total > limit) {
+            // Not awaited: cancelling a stream that is mid-read can itself wait on the producer.
+            reader.cancel().catch(() => undefined);
+            return { ...answer, tooLarge: true };
+          }
           chunks.push(value);
           arm();
         }
         answer.bytes = concat(chunks);
       } else {
-        answer.bytes = new Uint8Array(await guard(response.arrayBuffer()));
+        const bytes = new Uint8Array(await guard(response.arrayBuffer()));
+        if (bytes.length > limit) return { ...answer, tooLarge: true };
+        answer.bytes = bytes;
       }
       return answer;
     } catch {
@@ -141,9 +154,9 @@ export function createDeliveryClient(options: DeliveryClientOptions): DeliveryCl
 
   async function fetchMeta(identity: MetaIdentity = {}): Promise<MetaOutcome> {
     try {
-      const answer = await get(metaUrl(identity), { headers: keyHeaders, cache: 'no-store' }, (s) => s === 200 || CONFIGURATION.includes(s));
+      const answer = await get(metaUrl(identity), { headers: keyHeaders, cache: 'no-store' }, (s) => s === 200 || CONFIGURATION.includes(s), META_LIMIT);
       const { status } = answer;
-      if (status === 200) return decodeMeta(answer.bytes);
+      if (status === 200) return answer.tooLarge ? { kind: 'unreadable' } : decodeMeta(answer.bytes);
       if (status === 0) return { kind: 'network' };
       if (status === 429) return { kind: 'throttled', ...opt('retryAfter', answer.retryAfter) };
       if (!CONFIGURATION.includes(status)) return { kind: 'server', status, ...opt('retryAfter', answer.retryAfter) };
@@ -181,8 +194,9 @@ export function createDeliveryClient(options: DeliveryClientOptions): DeliveryCl
     try {
       const request = objectRequest(meta, meta.manifestUrl);
       if (!request) return { kind: 'refused' };
-      const answer = await get(request.url, request.extra, (s) => s === 200);
+      const answer = await get(request.url, request.extra, (s) => s === 200, MANIFEST_LIMIT);
       if (answer.status !== 200) return failure(answer);
+      if (answer.tooLarge) return { kind: 'unreadable' };
       const bytes = answer.bytes!;
       if ((await sha256Hex(bytes)) !== meta.checksum) return { kind: 'checksumMismatch' };
       const manifest = decodeManifest(parseJson(bytes));
@@ -198,11 +212,12 @@ export function createDeliveryClient(options: DeliveryClientOptions): DeliveryCl
       const base = meta.slicesBaseUrl;
       const request = HEX64.test(file.hash) && typeof base === 'string' && base.endsWith('/') ? objectRequest(meta, `${base}${file.hash}.json`) : null;
       if (!request) return { outcome: { kind: 'refused' }, stale: false };
-      const answer = await get(request.url, request.extra, (s) => s === 200);
+      const answer = await get(request.url, request.extra, (s) => s === 200, file.size);
       if (answer.status !== 200) {
         const outcome = failure(answer);
         return { outcome, stale: answer.opaque === true || (outcome.kind === 'unfetchable' && STALE_SIGNATURE.includes(outcome.status)) };
       }
+      if (answer.tooLarge) return { outcome: { kind: 'sizeMismatch' }, stale: false };
       const verdict = await verify(answer.bytes!, file);
       const outcome: SliceOutcome =
         verdict === 'ok' ? { kind: 'verified', bytes: answer.bytes! } : { kind: verdict === 'size' ? 'sizeMismatch' : 'hashMismatch' };
