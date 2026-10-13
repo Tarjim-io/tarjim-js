@@ -1,5 +1,5 @@
-import { IDBFactory, IDBObjectStore } from 'fake-indexeddb';
-import { describe, expect, it } from 'vitest';
+import { IDBDatabase, IDBFactory, IDBObjectStore } from 'fake-indexeddb';
+import { describe, expect, it, vi } from 'vitest';
 import { BUSY, storeId } from '@tarjim/core';
 import { makeInstall, slice, storeContract, until } from '../../core/test/helpers/store-contract.js';
 import {
@@ -127,6 +127,41 @@ describe('IndexedDbStore', () => {
         IDBObjectStore.prototype.put = realPut;
         IDBObjectStore.prototype.add = realAdd;
       }
+      world.dispose();
+    });
+  });
+
+  describe('an IndexedDB failure that is not quota', () => {
+    it('makes no method throw, answers "nothing written" and marks the store degraded', async () => {
+      const world = createIdbWorld();
+      const store = await world.open('a');
+      const one = slice('one');
+      const spy = vi.spyOn(IDBDatabase.prototype, 'transaction').mockImplementation(() => {
+        throw new DOMException('The database connection is closing.', 'InvalidStateError');
+      });
+      try {
+        expect(await store.readState()).toEqual({});
+        expect(store.degraded).toBe(true);
+        expect(await store.putSlice(one.hash, one.bytes)).toBe('unavailable');
+        expect((await store.readSlices([one.hash])).size).toBe(0);
+        expect(await store.writeInstall(makeInstall({ 'ui\nen': one.hash }), 'active')).toBe(false);
+        expect(await store.updateState((state) => ({ ...state, lastCheck: 5 }))).toEqual({ lastCheck: 5 });
+        await expect(store.cleanup()).resolves.toBeUndefined();
+      } finally {
+        spy.mockRestore();
+        world.dispose();
+      }
+    });
+
+    it('still throws what the change function throws', async () => {
+      const world = createIdbWorld();
+      const store = await world.open('a');
+      await expect(
+        store.updateState(() => {
+          throw new Error('bad change');
+        }),
+      ).rejects.toThrow('bad change');
+      expect(store.degraded).toBe(false);
       world.dispose();
     });
   });

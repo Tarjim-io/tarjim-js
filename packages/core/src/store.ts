@@ -39,10 +39,10 @@ export interface Store {
   withLock<T>(fn: () => Promise<T>): Promise<T | typeof BUSY>;
   /** Never throws; an unreadable record reads as empty. */
   readState(): Promise<State>;
-  /** One read-modify-write. */
+  /** One read-modify-write. When storage fails it returns the state it could not write rather than throwing. */
   updateState(change: (state: State) => State): Promise<State>;
-  /** A hash already held is never overwritten. */
-  putSlice(hash: string, bytes: Uint8Array): Promise<'stored' | 'held' | 'quota'>;
+  /** A hash already held is never overwritten. 'unavailable': storage is gone or failed for a reason other than quota. */
+  putSlice(hash: string, bytes: Uint8Array): Promise<'stored' | 'held' | 'quota' | 'unavailable'>;
   /** Re-hashed on read: a missing or altered slice is absent from the result. */
   readSlices(hashes: string[]): Promise<Map<string, Uint8Array>>;
   /** Writes nothing and returns false unless every hash the install names is held. */
@@ -218,7 +218,7 @@ export class MemoryStore implements Store {
     return sanitiseState(this.state);
   }
 
-  async putSlice(hash: string, bytes: Uint8Array): Promise<'stored' | 'held' | 'quota'> {
+  async putSlice(hash: string, bytes: Uint8Array): Promise<'stored' | 'held' | 'quota' | 'unavailable'> {
     if (this.slices.has(hash)) return 'held';
     this.slices.set(hash, bytes.slice());
     return 'stored';
