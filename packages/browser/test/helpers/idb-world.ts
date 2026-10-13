@@ -148,3 +148,10 @@ export async function putRawState(factory: IDBFactory, id: string, value: unknow
   });
   db.close();
 }
+
+export async function readRawState(factory: IDBFactory, id: string): Promise<unknown> {
+  const db = await openRaw(factory);
+  const value = await request(db.transaction('state').objectStore('state').get(id));
+  db.close();
+  return value;
+}

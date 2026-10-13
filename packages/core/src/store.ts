@@ -157,6 +157,25 @@ export function sanitiseState(raw: unknown): State {
   return state;
 }
 
+const KNOWN_STATE_KEYS = [
+  'active',
+  'pending',
+  ...NUMBER_FIELDS,
+  ...STRING_FIELDS,
+  'rejectedChecksums',
+  'reported',
+];
+
+/**
+ * The record to store: the one that was read with `next` laid over it. Fields this code does not know
+ * (written by a newer tab) survive; a known field absent from `next` was removed by the change.
+ */
+export function mergeState(raw: unknown, next: State): Record<string, unknown> {
+  const merged: Record<string, unknown> = isRecord(raw) ? { ...raw } : {};
+  for (const key of KNOWN_STATE_KEYS) delete merged[key];
+  return Object.assign(merged, next);
+}
+
 /** The hashes an install names, once each. */
 export function installHashes(install: Install): string[] {
   return [...new Set(Object.values(install.slots))];
@@ -178,7 +197,7 @@ export async function runWithProcessLock<T>(id: string, fn: () => Promise<T>): P
 export class MemoryStore implements Store {
   readonly id: string;
   degraded: boolean;
-  private state: State = {};
+  private state: Record<string, unknown> = {};
   private readonly slices = new Map<string, Uint8Array>();
 
   constructor(id: string, options: { degraded?: boolean } = {}) {
@@ -195,7 +214,7 @@ export class MemoryStore implements Store {
   }
 
   async updateState(change: (state: State) => State): Promise<State> {
-    this.state = sanitiseState(change(sanitiseState(this.state)));
+    this.state = mergeState(this.state, sanitiseState(change(sanitiseState(this.state))));
     return sanitiseState(this.state);
   }
 
@@ -217,14 +236,15 @@ export class MemoryStore implements Store {
   async writeInstall(install: Install, as: 'active' | 'pending'): Promise<boolean> {
     const clean = sanitiseInstall(install);
     if (!clean || !installHashes(clean).every((hash) => this.slices.has(hash))) return false;
-    const next: State = { ...this.state, [as]: clean };
+    const next: State = { ...sanitiseState(this.state), [as]: clean };
     if (as === 'active') delete next.pending;
-    this.state = next;
+    this.state = mergeState(this.state, next);
     return true;
   }
 
   async cleanup(): Promise<void> {
-    const keep = new Set([this.state.active, this.state.pending].flatMap((install) => (install ? installHashes(install) : [])));
+    const state = sanitiseState(this.state);
+    const keep = new Set([state.active, state.pending].flatMap((install) => (install ? installHashes(install) : [])));
     for (const hash of [...this.slices.keys()]) if (!keep.has(hash)) this.slices.delete(hash);
   }
 
