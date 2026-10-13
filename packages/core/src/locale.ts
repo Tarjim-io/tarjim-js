@@ -26,7 +26,7 @@ export function selectLocale(choice: LocaleChoice): { locale: string; source: Lo
     const match = matchLocale(wanted, universe);
     if (match !== null) return { locale: match, source: 'browser' };
   }
-  return { locale: fallback, source: 'fallback' };
+  return { locale: matchLocale(fallback, universe) ?? fallback, source: 'fallback' };
 }
 
 interface Parsed {

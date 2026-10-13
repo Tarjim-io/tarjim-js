@@ -152,6 +152,12 @@ describe('selecting the locale for a visitor', () => {
     });
   });
 
+  it('spells the fallback the way the universe does when it matches, and as given when it does not', () => {
+    expect(selectLocale({ browser: [], fallback: 'PT-br', universe: ['en', 'pt-BR'] })).toEqual({ locale: 'pt-BR', source: 'fallback' });
+    expect(selectLocale({ browser: [], fallback: 'en-GB', universe: ['en'] })).toEqual({ locale: 'en', source: 'fallback' });
+    expect(selectLocale({ browser: [], fallback: 'de', universe: ['en'] })).toEqual({ locale: 'de', source: 'fallback' });
+  });
+
   it('uses the fallback when the universe is empty and nothing is explicit', () => {
     expect(selectLocale({ saved: 'ar', browser: ['ar'], fallback: 'en', universe: [] })).toEqual({
       locale: 'en',
