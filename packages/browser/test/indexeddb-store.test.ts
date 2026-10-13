@@ -33,6 +33,23 @@ describe('IndexedDbStore', () => {
     });
   });
 
+  describe('held slices', () => {
+    it('does not write again when the held bytes are valid', async () => {
+      const world = createIdbWorld();
+      const store = await world.open('a');
+      const one = slice('one');
+      await store.putSlice(one.hash, one.bytes);
+      const put = vi.spyOn(IDBObjectStore.prototype, 'put');
+      try {
+        expect(await store.putSlice(one.hash, one.bytes)).toBe('held');
+        expect(put).not.toHaveBeenCalled();
+      } finally {
+        put.mockRestore();
+        world.dispose();
+      }
+    });
+  });
+
   describe('raw garbage in the state record', () => {
     it.each([
       ['a string', 'garbage'],

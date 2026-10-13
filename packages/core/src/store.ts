@@ -219,7 +219,10 @@ export class MemoryStore implements Store {
   }
 
   async putSlice(hash: string, bytes: Uint8Array): Promise<'stored' | 'held' | 'quota' | 'unavailable'> {
-    if (this.slices.has(hash)) return 'held';
+    const held = this.slices.get(hash);
+    if (held && (await sha256Hex(held)) === hash) return 'held';
+    // A damaged record is only replaced if nothing else replaced it while it was being hashed.
+    if (held && this.slices.get(hash) !== held) return 'held';
     this.slices.set(hash, bytes.slice());
     return 'stored';
   }
