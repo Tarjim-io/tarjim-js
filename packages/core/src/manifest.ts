@@ -4,6 +4,16 @@ import type { Manifest, ManifestBundle, SliceFile } from './types.js';
 // Lenient on purpose: an entry that is not understood is dropped, never reported. Only the JSON
 // file of a slice is kept; no other file type is ever read.
 export function decodeManifest(value: unknown): Manifest | null {
+  return decode(value, (files) => (isRecord(files) ? files['json'] : undefined));
+}
+
+// A stored manifest is already reduced to the JSON file of each slice, so decoding it again with
+// `decodeManifest` would drop every slice.
+export function decodeStoredManifest(value: unknown): Manifest | null {
+  return decode(value, (file) => file);
+}
+
+function decode(value: unknown, jsonFileOf: (files: unknown) => unknown): Manifest | null {
   try {
     if (!isRecord(value) || typeof value['schemaVersion'] !== 'number') return null;
     const { bundles, slices } = value;
@@ -24,7 +34,7 @@ export function decodeManifest(value: unknown): Manifest | null {
       if (!isRecord(locales)) continue;
       const decoded: Record<string, SliceFile> = {};
       for (const [locale, files] of entriesOf(locales)) {
-        const json = isRecord(files) ? files['json'] : undefined;
+        const json = jsonFileOf(files);
         if (!isRecord(json)) continue;
         const { hash, size } = json;
         if (typeof hash === 'string' && HEX64.test(hash) && Number.isSafeInteger(size) && (size as number) >= 0) {
