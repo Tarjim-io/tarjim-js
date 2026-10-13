@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { runCycle, slotName } from '../../src/index.js';
 import { hashOf, installed, makeRelease, makeWorld } from '../helpers/cycle-world.js';
+import { respond } from '../support.js';
 
 describe('the first check', () => {
   it('installs the release at once as the active one and records the poll', async () => {
@@ -161,6 +162,18 @@ describe('the identity sent with the meta request', () => {
     await w.run();
     expect(w.server.metaQuery()).not.toHaveProperty('language');
   });
+
+  it('asks for no manifest while no language is chosen, and installs once one is', async () => {
+    const w = makeWorld();
+    w.selection.locale = undefined;
+    expect((await w.run()).outcome).toBe('noChange');
+    expect(w.server.count('manifest')).toBe(0);
+    expect((await w.state()).active).toBeUndefined();
+
+    w.selection.locale = 'en';
+    w.clock.advance(1000);
+    expect((await w.run()).outcome).toBe('activated');
+  });
 });
 
 describe('a manual check', () => {
@@ -196,6 +209,31 @@ describe('a manual check', () => {
     w.clock.advance(21);
     expect((await runCycle(w.tab(), 'checkNow')).outcome).toBe('noChange');
     expect(w.server.count('meta')).toBe(before + 1);
+  });
+
+  it('does not move the floor when it is refused', async () => {
+    const w = await installed();
+    w.clock.advance(-1000 + 10);
+    await w.run('checkNow');
+    const first = w.clock.now();
+
+    w.clock.advance(30);
+    expect((await w.run('checkNow')).outcome).toBe('notDue');
+    expect((await w.state()).checkNowAt).toBe(first);
+
+    w.clock.advance(31);
+    expect((await w.run('checkNow')).outcome).toBe('noChange');
+    expect((await w.state()).checkNowAt).toBe(w.clock.now());
+  });
+
+  it('does not set the floor when a backoff refuses it', async () => {
+    const w = await installed();
+    w.server.on('meta', () => respond(503, 'busy', { headers: { 'Content-Type': 'text/plain', 'Retry-After': '600' } }), { times: 1 });
+    await w.run();
+
+    w.clock.advance(100);
+    expect((await w.run('checkNow')).outcome).toBe('notDue');
+    expect((await w.state()).checkNowAt).toBeUndefined();
   });
 
   it('is not held back by a scheduled check made just before', async () => {

@@ -1,5 +1,5 @@
-import { CHECK_NOW_FLOOR_SECONDS, MIN_POLL_SECONDS, backoffSeconds, clampPollAfter, clampRetryAfter, dueAt } from './cadence.js';
-import { BUSY, composeSlots, slotName } from './store.js';
+import { CHECK_NOW_FLOOR_SECONDS, MIN_POLL_SECONDS, backoffSeconds, clampPollAfter, clampRetryAfter, dueAt, notBeforeOf } from './cadence.js';
+import { BUSY, composeSlots, parseSlot, slotName } from './store.js';
 import type { Install, State, Store } from './store.js';
 import type { DeliveryClient, Manifest, Meta, MetaIdentity, SliceFile } from './types.js';
 
@@ -21,13 +21,16 @@ export type CycleCondition =
   | { code: 'metaSchema'; schemaVersion: unknown }
   | { code: 'manifestSchema'; schemaVersion: unknown }
   | { code: 'manifestIntegrity' }
+  | { code: 'manifestUnreadable' }
   | { code: 'sliceIntegrity' }
   | { code: 'storage' };
 
 export interface CycleResult {
   outcome: CycleOutcome;
-  /** The install written by this cycle, if any. */
+  /** The install the poll wrote, or the one the locale step extended when the poll wrote none. */
   install?: Install;
+  /** Set whenever this cycle changed the active install, whatever the poll's outcome. */
+  active?: Install;
   conditions: CycleCondition[];
 }
 
@@ -55,6 +58,26 @@ const own = (object: object, key: string): boolean => Object.prototype.hasOwnPro
 function lookup(manifest: Manifest, bundle: string, locale: string): SliceFile | undefined {
   const files = own(manifest.slices, bundle) ? manifest.slices[bundle] : undefined;
   return files && own(files, locale) ? files[locale] : undefined;
+}
+
+function fileOf(manifest: Manifest, slot: string): SliceFile | undefined {
+  const parsed = parseSlot(slot);
+  return parsed && lookup(manifest, parsed.bundle, parsed.locale);
+}
+
+function wantedSlots(manifest: Manifest, locale: string): Map<string, SliceFile> {
+  const wanted = new Map<string, SliceFile>();
+  for (const bundle of Object.keys(manifest.slices)) {
+    const file = lookup(manifest, bundle, locale);
+    if (file) wanted.set(slotName(bundle, locale), file);
+  }
+  return wanted;
+}
+
+// A slot the newest install lacks is served from the active one, so a new install keeps that file as its previous text.
+function previousOf(state: State, known: Install | undefined): Install | undefined {
+  if (!known || !state.active || !state.pending) return known;
+  return { ...known, slots: { ...state.active.slots, ...known.slots } };
 }
 
 // The held install carries its own URLs and signature, so its slices can be fetched without reading meta.
@@ -138,7 +161,8 @@ async function acquire(context: CycleContext, wanted: Map<string, SliceFile>, me
       got.verified.set(slot, file.hash);
     } else if (outcome?.kind === 'hashMismatch' || outcome?.kind === 'sizeMismatch') {
       got.integrity = true;
-    } else {
+    } else if (outcome?.kind !== 'unfetchable' && outcome?.kind !== 'refused') {
+      // An object the server will not hand out stays owed without a backoff; the next check asks again.
       got.transient = true;
       if (outcome && 'retryAfter' in outcome && outcome.retryAfter !== undefined) {
         got.retryAfter = Math.max(got.retryAfter ?? 0, outcome.retryAfter);
@@ -155,7 +179,12 @@ function build(
   names: string[],
   got: Acquired,
 ): Install {
-  const { slots, owed } = composeSlots(previous, names, got.verified);
+  const { slots } = composeSlots(previous, names, got.verified);
+  // A slot that kept its previous text is still owed the manifest's.
+  const owed = names.filter((name) => {
+    const target = fileOf(from.manifest, name);
+    return slots[name] === undefined || (target !== undefined && slots[name] !== target.hash);
+  });
   const { meta } = got;
   return {
     checksum: from.checksum,
@@ -184,6 +213,12 @@ async function commit(context: CycleContext, install: Install, role: Role): Prom
 
 const installedOutcome = (role: Role): CycleOutcome => (role === 'active' ? 'activated' : 'downloaded');
 const integrityConditions = (got: Acquired): CycleCondition[] => (got.integrity ? [{ code: 'sliceIntegrity' }] : []);
+const activeOf = (install: Install, role: Role): { active?: Install } => (role === 'active' ? { active: install } : {});
+
+async function writeFailed(context: CycleContext): Promise<CycleResult> {
+  await backOff(context);
+  return storageFailure();
+}
 
 async function heldLocale(context: CycleContext): Promise<CycleResult> {
   const { store } = context;
@@ -192,37 +227,39 @@ async function heldLocale(context: CycleContext): Promise<CycleResult> {
   const locale = context.locale();
   if (!base || locale === undefined) return none();
   const mark = `${base.checksum}\n${locale}`;
-  if (state.localeFetched === mark || (state.notBefore ?? 0) > context.now()) return none();
+  if (state.localeFetched === mark) return none();
 
   const wanted = new Map<string, SliceFile>();
-  for (const bundle of Object.keys(base.manifest.slices)) {
-    const file = lookup(base.manifest, bundle, locale);
-    const slot = slotName(bundle, locale);
+  for (const [slot, file] of wantedSlots(base.manifest, locale)) {
     // An owed slot belongs to the retry that a fresh meta triggers, which brings a fresh signature.
-    if (file && base.slots[slot] === undefined && !base.owed.includes(slot)) wanted.set(slot, file);
+    if (base.slots[slot] === undefined && !base.owed.includes(slot)) wanted.set(slot, file);
   }
   if (!wanted.size) return none();
+  if (notBeforeOf(state, context.now()) > context.now()) return { outcome: 'notDue', conditions: [] };
 
   const got = await acquire(context, wanted, metaOf(base), identityOf(context, state));
   if (got.storage) return storageFailure();
   const role: Role = state.pending ? 'pending' : 'active';
   let install: Install | undefined;
-  if (got.verified.size) {
+  // Slots that could not be fetched are written as owed, so the install records the attempt.
+  if (got.verified.size || !got.transient) {
     const names = [...new Set([...Object.keys(base.slots), ...base.owed, ...wanted.keys()])];
-    install = build(context, base, base, names, got);
-    if (!(await commit(context, install, role))) return storageFailure();
+    install = build(context, base, previousOf(state, base), names, got);
+    if (!(await commit(context, install, role))) return writeFailed(context);
   }
   // A transient failure leaves the mark unset so a later cycle tries again, after the backoff.
   if (got.transient) await backOff(context, got.retryAfter);
   else await store.updateState((current) => ({ ...current, localeFetched: mark }));
 
   const conditions = integrityConditions(got);
-  if (install) return { outcome: installedOutcome(role), install, conditions };
-  return { outcome: got.transient ? 'failed' : 'noChange', conditions };
+  const extra = install ? activeOf(install, role) : {};
+  if (install && got.verified.size) return { outcome: installedOutcome(role), install, conditions, ...extra };
+  return { outcome: got.transient ? 'failed' : 'noChange', conditions, ...extra };
 }
 
 async function retryOwed(
   context: CycleContext,
+  state: State,
   known: Install,
   role: Role,
   meta: Meta,
@@ -231,8 +268,7 @@ async function retryOwed(
 ): Promise<CycleResult> {
   const wanted = new Map<string, SliceFile>();
   for (const slot of known.owed) {
-    const split = slot.indexOf('\n');
-    const file = lookup(known.manifest, slot.slice(0, split), slot.slice(split + 1));
+    const file = fileOf(known.manifest, slot);
     if (file) wanted.set(slot, file);
   }
   if (!wanted.size) {
@@ -247,14 +283,16 @@ async function retryOwed(
   }
   let install: Install | undefined;
   if (got.verified.size) {
-    install = build(context, known, known, [...Object.keys(known.slots), ...known.owed], got);
-    if (!(await commit(context, install, role))) return storageFailure();
+    install = build(context, known, previousOf(state, known), [...Object.keys(known.slots), ...known.owed], got);
+    if (!(await commit(context, install, role))) return writeFailed(context);
   }
   if (got.transient) await backOff(context, got.retryAfter);
   else await settle(context, pollAfter);
 
   const conditions = integrityConditions(got);
-  return install ? { outcome: installedOutcome(role), install, conditions } : { outcome: 'noChange', conditions };
+  return install
+    ? { outcome: installedOutcome(role), install, conditions, ...activeOf(install, role) }
+    : { outcome: 'noChange', conditions };
 }
 
 async function poll(context: CycleContext, state: State): Promise<CycleResult> {
@@ -303,9 +341,8 @@ async function poll(context: CycleContext, state: State): Promise<CycleResult> {
   }
 
   const known = state.pending ?? state.active;
-  const role: Role = state.active ? 'pending' : 'active';
   if (known && known.checksum === meta.checksum) {
-    return retryOwed(context, known, state.pending ? 'pending' : 'active', meta, pollAfter, identity);
+    return retryOwed(context, state, known, state.pending ? 'pending' : 'active', meta, pollAfter, identity);
   }
   if (state.pending && state.active?.checksum === meta.checksum) {
     await settle(context, pollAfter, (current) => {
@@ -314,14 +351,22 @@ async function poll(context: CycleContext, state: State): Promise<CycleResult> {
     return none();
   }
 
+  // Nothing can be wanted before a locale is chosen, and the next check sees this checksum as new again.
+  const locale = context.locale();
+  if (locale === undefined) {
+    await settle(context, pollAfter);
+    return none();
+  }
+
   const fetched = await client.fetchManifest(meta);
   if (fetched.kind !== 'verified') {
-    if (fetched.kind === 'checksumMismatch' || fetched.kind === 'unreadable') {
+    if (fetched.kind === 'checksumMismatch') {
       await settle(context, pollAfter, reject);
-      return { outcome: 'failed', conditions: fetched.kind === 'checksumMismatch' ? [{ code: 'manifestIntegrity' }] : [] };
+      return { outcome: 'failed', conditions: [{ code: 'manifestIntegrity' }] };
     }
     await backOff(context, 'retryAfter' in fetched ? fetched.retryAfter : undefined);
-    return { outcome: 'failed', conditions: [] };
+    // Not rejected: an oversized proxy page and a bad release look the same from here, and the next meta may differ.
+    return { outcome: 'failed', conditions: fetched.kind === 'unreadable' ? [{ code: 'manifestUnreadable' }] : [] };
   }
   const { manifest } = fetched;
   if (manifest.schemaVersion !== KNOWN_SCHEMA) {
@@ -329,34 +374,47 @@ async function poll(context: CycleContext, state: State): Promise<CycleResult> {
     return { outcome: 'failed', conditions: [{ code: 'manifestSchema', schemaVersion: manifest.schemaVersion }] };
   }
 
-  const locale = context.locale();
-  const wanted = new Map<string, SliceFile>();
-  for (const bundle of locale === undefined ? [] : Object.keys(manifest.slices)) {
-    const file = lookup(manifest, bundle, locale!);
-    if (file) wanted.set(slotName(bundle, locale!), file);
-  }
+  const wanted = wantedSlots(manifest, locale);
   const got = await acquire(context, wanted, meta, identity);
   if (got.storage) {
     await settle(context, pollAfter);
     return storageFailure();
   }
 
-  const names = [...wanted.keys()];
-  const install = build(context, { checksum: meta.checksum, releaseId: meta.releaseId, manifest }, known, names, got);
-  const changed = names.some((name) => install.slots[name] !== known?.slots[name]);
-  if (changed && !(await commit(context, install, role))) return storageFailure();
+  const previous = previousOf(state, known);
+  const install = build(context, { checksum: meta.checksum, releaseId: meta.releaseId, manifest }, previous, [...wanted.keys()], got);
+  // A dropped bundle or locale changes what is served as much as a new text does.
+  const changed =
+    Object.keys(known?.slots ?? {}).some((slot) => parseSlot(slot)?.locale === locale && install.slots[slot] === undefined) ||
+    Object.entries(install.slots).some(([slot, hash]) => hash !== previous?.slots[slot]);
+  // A release that changes nothing served is still adopted, so the next poll does not fetch its manifest again.
+  const role: Role = changed ? (state.active ? 'pending' : 'active') : state.pending ? 'pending' : 'active';
+  if (!(await commit(context, install, role))) return writeFailed(context);
   if (got.transient) await backOff(context, got.retryAfter);
   else await settle(context, pollAfter);
 
   const conditions = integrityConditions(got);
-  if (changed) return { outcome: installedOutcome(role), install, conditions };
-  return { outcome: got.transient ? 'failed' : 'noChange', conditions };
+  const extra = activeOf(install, role);
+  if (changed) return { outcome: installedOutcome(role), install, conditions, ...extra };
+  return { outcome: got.transient ? 'failed' : 'noChange', conditions, ...extra };
+}
+
+function merge(held: CycleResult, rest: CycleResult): CycleResult {
+  const conditions = [...held.conditions, ...rest.conditions];
+  const active = rest.active ?? held.active;
+  const extra = active ? { active } : {};
+  if (rest.install) return { ...rest, conditions, ...extra };
+  if (held.install && (rest.outcome === 'noChange' || rest.outcome === 'notDue')) {
+    return { outcome: held.outcome, install: held.install, conditions, ...extra };
+  }
+  // A backoff the locale step just started is the reason the poll did not run.
+  if (rest.outcome === 'notDue' && held.outcome === 'failed') return { ...held, conditions, ...extra };
+  return { ...rest, conditions, ...extra };
 }
 
 async function cycle(context: CycleContext, reason: CycleReason): Promise<CycleResult> {
   const held = await heldLocale(context);
-  if (held.outcome === 'failed') return held;
-  const notDue: CycleResult = held.install ? held : { outcome: 'notDue', conditions: [] };
+  const notDue: CycleResult = { outcome: 'notDue', conditions: [] };
 
   const state = await context.store.readState();
   const now = context.now();
@@ -364,18 +422,13 @@ async function cycle(context: CycleContext, reason: CycleReason): Promise<CycleR
     const last = state.checkNowAt;
     const tooSoon = last !== undefined && last <= now && last + CHECK_NOW_FLOOR_SECONDS * 1000 > now;
     // A manual check never shortens a backoff or a Retry-After.
-    if (tooSoon || (state.notBefore ?? 0) > now) return notDue;
+    if (tooSoon || notBeforeOf(state, now) > now) return merge(held, notDue);
     await context.store.updateState((current) => ({ ...current, checkNowAt: now }));
   } else if (dueAt(state, now, context.random()) > now) {
-    return notDue;
+    return merge(held, notDue);
   }
 
-  const rest = await poll(context, state);
-  const conditions = [...held.conditions, ...rest.conditions];
-  if (!rest.install && held.install && (rest.outcome === 'noChange' || rest.outcome === 'notDue')) {
-    return { outcome: held.outcome, install: held.install, conditions };
-  }
-  return { ...rest, conditions };
+  return merge(held, await poll(context, state));
 }
 
 async function guarded(context: CycleContext, work: () => Promise<CycleResult>): Promise<CycleResult> {

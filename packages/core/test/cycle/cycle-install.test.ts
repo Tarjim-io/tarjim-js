@@ -124,11 +124,12 @@ describe('the bundles of a new release', () => {
     expect(w.server.objectCount(hashOf(before, 'b1', 'en'))).toBe(1);
   });
 
-  it('writes nothing when no slot of the selected locale changed', async () => {
+  it('adopts a release whose selected-locale slots are all unchanged, without an event or a download', async () => {
     const w = await installed();
     const active = (await w.state()).active!;
     const calls = watchCleanup(w);
-    w.server.use(makeRelease({ locales: ['en', 'fr', 'de'], releaseId: 2 }));
+    const next = makeRelease({ locales: ['en', 'fr', 'de'], releaseId: 2 });
+    w.server.use(next);
     const objects = w.server.count('object');
 
     const result = await w.run();
@@ -136,9 +137,76 @@ describe('the bundles of a new release', () => {
     expect(result.install).toBeUndefined();
     const state = await w.state();
     expect(state.pending).toBeUndefined();
+    expect(state.active?.checksum).toBe(next.meta.checksum);
+    expect(state.active?.releaseId).toBe(2);
+    expect(state.active?.slots).toEqual(active.slots);
+    expect(w.server.count('object')).toBe(objects);
+    expect(calls).toHaveLength(1);
+
+    const manifests = w.server.count('manifest');
+    w.clock.advance(1000);
+    expect((await w.run()).outcome).toBe('noChange');
+    expect(w.server.count('manifest')).toBe(manifests);
+  });
+
+  it('adopts into the pending install when that is the newest one known', async () => {
+    const w = await installed();
+    const active = (await w.state()).active!;
+    w.server.use(makeRelease({ content: { b1: 'v2' }, releaseId: 2 }));
+    await w.run();
+    const pending = (await w.state()).pending!;
+    w.clock.advance(1000);
+    const next = makeRelease({ content: { b1: 'v2' }, locales: ['en', 'fr', 'de'], releaseId: 3 });
+    w.server.use(next);
+
+    expect((await w.run()).outcome).toBe('noChange');
+    const state = await w.state();
+    expect(state.active).toEqual(active);
+    expect(state.pending?.checksum).toBe(next.meta.checksum);
+    expect(state.pending?.slots).toEqual(pending.slots);
+  });
+
+  it('adopts a first release that has nothing for the selected locale', async () => {
+    const w = makeWorld({ locale: 'de' });
+
+    const result = await w.run();
+    expect(result.outcome).toBe('noChange');
+    expect(result.install).toBeUndefined();
+    const state = await w.state();
+    expect(state.active?.checksum).toBe(w.server.current.meta.checksum);
+    expect(state.active?.slots).toEqual({});
+    expect(state.active?.owed).toEqual([]);
+
+    w.clock.advance(1000);
+    await w.run();
+    expect(w.server.count('manifest')).toBe(1);
+  });
+
+  it('installs a release that drops a bundle and leaves the rest identical', async () => {
+    const w = await installed({ release: makeRelease({ content: two('v1') }) });
+    const active = (await w.state()).active!;
+    const next = makeRelease({ content: { b1: 'v1' }, releaseId: 2 });
+    w.server.use(next);
+    const objects = w.server.count('object');
+
+    const result = await w.run();
+    expect(result.outcome).toBe('downloaded');
+    const state = await w.state();
+    expect(state.pending?.checksum).toBe(next.meta.checksum);
+    expect(Object.keys(state.pending?.slots ?? {})).toEqual([slotName('b1', 'en')]);
     expect(state.active).toEqual(active);
     expect(w.server.count('object')).toBe(objects);
-    expect(calls).toHaveLength(0);
+  });
+
+  it('installs a release that drops the selected locale', async () => {
+    const w = await installed();
+    const next = makeRelease({ locales: ['fr'], releaseId: 2 });
+    w.server.use(next);
+
+    expect((await w.run()).outcome).toBe('downloaded');
+    const state = await w.state();
+    expect(state.pending?.checksum).toBe(next.meta.checksum);
+    expect(state.pending?.slots).toEqual({});
   });
 });
 

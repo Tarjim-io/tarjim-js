@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
-import { MemoryStore, runCycle } from '../../src/index.js';
+import { MemoryStore, fetchHeldLocale, runCycle, slotName } from '../../src/index.js';
 import { hashOf, installed, makeRelease, makeWorld } from '../helpers/cycle-world.js';
 import type { World } from '../helpers/cycle-world.js';
-import { fixtureResponse, problem, respond } from '../support.js';
+import { fixtureResponse, problem, respond, sha256Hex } from '../support.js';
 
 const serverError = () => respond(500, 'oops', { headers: { 'Content-Type': 'text/plain' } });
 const edgeDown = () => respond(503, '<html>busy</html>', { headers: { 'Content-Type': 'text/html' } });
@@ -321,5 +321,138 @@ describe('storage that cannot be used', () => {
     const state = await w.state();
     expect(state.active).toEqual(held);
     expect(state.pending).toBeUndefined();
+  });
+});
+
+describe('a store that refuses to write the install', () => {
+  it('backs off after a first install, like any transient failure', async () => {
+    const w = makeWorld();
+    vi.spyOn(w.store, 'writeInstall').mockResolvedValue(false);
+
+    const result = await w.run();
+    expect(result.outcome).toBe('failed');
+    expect(result.conditions).toContainEqual({ code: 'storage' });
+    const state = await w.state();
+    expect(state.backoffStep).toBe(1);
+    expect(state.notBefore!).toBeGreaterThan(w.clock.now());
+    expect(state.active).toBeUndefined();
+  });
+
+  it('backs off after extending the install for a new locale', async () => {
+    const w = await installed();
+    vi.spyOn(w.store, 'writeInstall').mockResolvedValue(false);
+    w.selection.locale = 'fr';
+
+    const result = await fetchHeldLocale(w.ctx);
+    expect(result.outcome).toBe('failed');
+    expect(result.conditions).toContainEqual({ code: 'storage' });
+    const state = await w.state();
+    expect(state.backoffStep).toBe(1);
+    expect(state.notBefore!).toBeGreaterThan(w.clock.now());
+  });
+
+  it('backs off after retrying an owed slot', async () => {
+    const bad = makeRelease({ content: { b1: 'v1' }, tamper: { slices: { 'b1/en': 'hash' } } });
+    const w = makeWorld({ release: bad });
+    await w.run();
+    w.clock.advance(1000);
+    w.server.use(makeRelease({ content: { b1: 'v1' } }));
+    vi.spyOn(w.store, 'writeInstall').mockResolvedValue(false);
+
+    const result = await w.run();
+    expect(result.outcome).toBe('failed');
+    expect(result.conditions).toContainEqual({ code: 'storage' });
+    expect((await w.state()).backoffStep).toBe(1);
+  });
+});
+
+describe('an object that cannot be fetched while a release is installed', () => {
+  const both = (tag: string) => ({ b1: tag, b2: tag });
+  const gone = () => respond(404, 'gone', { headers: { 'Content-Type': 'text/plain' } });
+
+  async function nextRelease() {
+    const v1 = makeRelease({ content: both('v1') });
+    const w = await installed({ release: v1 });
+    const v2 = makeRelease({ content: both('v2'), releaseId: 2 });
+    w.server.use(v2);
+    return { w, v1, v2, b1: slotName('b1', 'en') };
+  }
+
+  it('is owed while the rest installs, and the check settles without a backoff', async () => {
+    const { w, v1, v2, b1 } = await nextRelease();
+    w.server.on('object', gone, { name: hashOf(v2, 'b1', 'en') });
+    const before = (await w.state()).lastCheck;
+
+    const result = await w.run();
+    expect(result.outcome).toBe('downloaded');
+    const state = await w.state();
+    expect(state.pending?.slots[b1]).toBe(hashOf(v1, 'b1', 'en'));
+    expect(state.pending?.slots[slotName('b2', 'en')]).toBe(hashOf(v2, 'b2', 'en'));
+    expect(state.pending?.owed).toEqual([b1]);
+    expect(state.lastCheck).toBe(w.clock.now());
+    expect(state.lastCheck).not.toBe(before);
+    expect(state.backoffStep).toBeUndefined();
+    expect(state.notBefore).toBeUndefined();
+
+    w.server.clearRules();
+    w.clock.advance(1000);
+    const retried = await w.run();
+    expect(retried.install?.owed).toEqual([]);
+    expect((await w.state()).pending?.slots[b1]).toBe(hashOf(v2, 'b1', 'en'));
+  });
+
+  it('is owed while the rest installs, and a network failure backs off', async () => {
+    const { w, v1, v2, b1 } = await nextRelease();
+    w.server.on('object', offline, { name: hashOf(v2, 'b1', 'en') });
+    const before = (await w.state()).lastCheck;
+
+    const result = await w.run();
+    expect(result.outcome).toBe('downloaded');
+    const state = await w.state();
+    expect(state.pending?.slots[b1]).toBe(hashOf(v1, 'b1', 'en'));
+    expect(state.pending?.slots[slotName('b2', 'en')]).toBe(hashOf(v2, 'b2', 'en'));
+    expect(state.pending?.owed).toEqual([b1]);
+    expect(state.lastCheck).toBe(before);
+    expect(state.backoffStep).toBe(1);
+    expect(state.notBefore!).toBeGreaterThan(w.clock.now());
+
+    w.server.clearRules();
+    w.clock.set(state.notBefore! + 1);
+    expect((await w.run()).install?.owed).toEqual([]);
+  });
+});
+
+describe('a manifest that cannot be decoded', () => {
+  const oversized = () => respond(200, new Uint8Array(8 * 1024 * 1024 + 1).fill(120));
+
+  function notAManifest(w: World) {
+    const text = '{"hello":"world"}';
+    w.server.on('meta', () => respond(200, { ...w.server.current.meta, checksum: sha256Hex(text) }));
+    w.server.on('manifest', () => respond(200, text));
+  }
+
+  it.each([
+    ['is over the size cap', (w: World) => w.server.on('manifest', oversized)],
+    ['is not a manifest', notAManifest],
+  ])('backs off, reports it, and is tried again when it %s', async (_label, arrange) => {
+    const w = makeWorld();
+    arrange(w);
+
+    const result = await w.run();
+    expect(result.outcome).toBe('failed');
+    expect(result.conditions).toContainEqual({ code: 'manifestUnreadable' });
+    const state = await w.state();
+    expect(state.rejectedChecksums ?? []).toEqual([]);
+    expect(state.backoffStep).toBe(1);
+    expect(state.notBefore!).toBeGreaterThan(w.clock.now());
+    expect(state.lastCheck).toBeUndefined();
+
+    w.clock.set(state.notBefore! + 1);
+    await w.run();
+    expect(w.server.count('manifest')).toBe(2);
+
+    w.server.clearRules();
+    w.clock.advance(1000);
+    expect((await w.run()).outcome).toBe('activated');
   });
 });
