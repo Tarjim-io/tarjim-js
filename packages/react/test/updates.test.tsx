@@ -223,6 +223,53 @@ describe('applying a downloaded release', () => {
     expect(api.latest().pendingUpdate).toBe(false);
   });
 
+  it('activates it on request through the hook, which says whether there was one', async () => {
+    const r = rig();
+    const api = capture();
+    mount(
+      <TarjimProvider config={r.world.config({ language: 'en' })} start={r.start}>
+        <api.Capture />
+      </TarjimProvider>,
+    );
+    await waitFor(() => expect(api.latest().t('a')).toBe('v1 b1 en'), { timeout: 1000 });
+    let none: boolean | undefined;
+    await act(async () => {
+      none = api.latest().activatePendingUpdate();
+    });
+    expect(none).toBe(false);
+
+    await r.downloadNext('v2', 2);
+    await waitFor(() => expect(api.latest().pendingUpdate).toBe(true), { timeout: 1000 });
+    let activated: boolean | undefined;
+    await act(async () => {
+      activated = api.latest().activatePendingUpdate();
+    });
+
+    expect(activated).toBe(true);
+    expect(api.latest().t('a')).toBe('v2 b1 en');
+    expect(api.latest().pendingUpdate).toBe(false);
+  });
+
+  it('activates a release that is already pending when activateImmediately is switched on', async () => {
+    const r = rig();
+    const api = capture();
+    const config = r.world.config({ language: 'en' });
+    const tree = (immediately: boolean) => (
+      <TarjimProvider config={config} start={r.start} activateImmediately={immediately}>
+        <api.Capture />
+      </TarjimProvider>
+    );
+    const view = mount(tree(false));
+    await waitFor(() => expect(api.latest().t('a')).toBe('v1 b1 en'), { timeout: 1000 });
+    await r.downloadNext('v2', 2);
+    await waitFor(() => expect(api.latest().pendingUpdate).toBe(true), { timeout: 1000 });
+
+    view.rerender(tree(true));
+
+    await waitFor(() => expect(api.latest().t('a')).toBe('v2 b1 en'), { timeout: 1000 });
+    expect(api.latest().pendingUpdate).toBe(false);
+  });
+
   it('keeps it waiting for the next page load by default', async () => {
     const r = rig();
     mount(

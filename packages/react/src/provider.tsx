@@ -27,6 +27,8 @@ export interface TarjimContextValue {
   language: string;
   setLanguage(language: string): Promise<void>;
   checkNow(): Promise<CheckResult>;
+  /** Shows a downloaded release now; false when none is waiting. */
+  activatePendingUpdate(): boolean;
   ready: boolean;
   pendingUpdate: boolean;
 }
@@ -149,6 +151,7 @@ export function TarjimProvider({
       started: local && (Promise.resolve(local) as Promise<Source>),
       setLanguage: (language: string): Promise<void> => (state.started ?? wait).then((source) => source.setLanguage(language)),
       checkNow: (): Promise<CheckResult> => (state.started ?? wait).then((source) => source.checkNow()),
+      activate: (): boolean => state.runtime?.activatePendingUpdate() ?? false,
     };
     return state;
   });
@@ -168,7 +171,8 @@ export function TarjimProvider({
 
   useEffect(() => {
     own.activateImmediately = activateImmediately;
-  });
+    if (activateImmediately) own.activate();
+  }, [activateImmediately]);
 
   useEffect(() => {
     if (own.hydrating) {
@@ -260,6 +264,7 @@ export function TarjimProvider({
       language: source?.language ?? own.config.language ?? own.config.fallbackLanguage,
       setLanguage: own.setLanguage,
       checkNow: own.checkNow,
+      activatePendingUpdate: own.activate,
       ready: source?.ready ?? false,
       pendingUpdate: pending,
     }),
