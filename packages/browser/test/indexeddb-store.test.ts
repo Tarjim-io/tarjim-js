@@ -89,6 +89,50 @@ describe('IndexedDbStore', () => {
     });
   });
 
+  describe('a stored install with a damaged manifest', () => {
+    it.each([
+      ['an empty object', {}],
+      ['a manifest without bundles or slices', { schemaVersion: 1 }],
+      ['a string', 'manifest'],
+    ])('reads an install whose manifest is %s as absent', async (_label, manifest) => {
+      const world = createIdbWorld();
+      const store = await world.open('a');
+      await putRawState(world.factory, store.id, { active: { ...makeInstall({}), manifest }, lastCheck: 7 });
+      const state = await store.readState();
+      expect(state.active).toBeUndefined();
+      expect(state.lastCheck).toBe(7);
+      world.dispose();
+    });
+
+    it('reads a manifest holding a lattice of shared arrays under an unknown key quickly, as a valid install', async () => {
+      const world = createIdbWorld();
+      const store = await world.open('a');
+      let lattice: unknown[] = [];
+      for (let i = 0; i < 24; i++) lattice = [lattice, lattice];
+      const manifest = { schemaVersion: 1, bundles: {}, slices: {}, extra: lattice };
+      await putRawState(world.factory, store.id, { active: { ...makeInstall({}), manifest } });
+      const start = Date.now();
+      const state = await store.readState();
+      expect(Date.now() - start).toBeLessThan(200);
+      expect(state.active?.manifest).toEqual({ schemaVersion: 1, bundles: {}, slices: {} });
+      world.dispose();
+    });
+
+    it('round-trips a valid manifest', async () => {
+      const world = createIdbWorld();
+      const store = await world.open('a');
+      const manifest = {
+        schemaVersion: 1,
+        bundles: { ui: { type: 'web', name: 'UI', namespaces: ['a'] } },
+        slices: { ui: { en: { hash: 'd'.repeat(64), size: 3 } } },
+      };
+      const install = makeInstall({}, { manifest });
+      await putRawState(world.factory, store.id, { active: install });
+      expect((await store.readState()).active).toEqual(install);
+      world.dispose();
+    });
+  });
+
   describe('fields written by a newer tab', () => {
     it('keeps an unknown state field through updateState, dropping only what the change removed', async () => {
       const world = createIdbWorld();

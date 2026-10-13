@@ -1,3 +1,4 @@
+import { decodeStoredManifest } from './manifest.js';
 import type { Manifest } from './types.js';
 import { sha256Hex } from './verifier.js';
 
@@ -81,22 +82,27 @@ const isFiniteNumber = (value: unknown): value is number => typeof value === 'nu
 const isStrings = (value: unknown): value is string[] =>
   Array.isArray(value) && value.every((item) => typeof item === 'string');
 
-// Stored data is only ever a clone of what was written, but a record that was damaged or written by
-// something else must not be able to exhaust the stack.
-function freezeCopy(value: unknown, depth = 0): unknown {
-  if (typeof value !== 'object' || value === null) return value;
-  if (depth > 32) throw new RangeError('too deep');
-  if (Array.isArray(value)) return Object.freeze(value.map((item) => freezeCopy(item, depth + 1)));
-  const copy: Record<string, unknown> = {};
-  for (const [key, item] of Object.entries(value)) {
-    if (key !== '__proto__') copy[key] = freezeCopy(item, depth + 1);
+// Only for values the decoder built fresh: it never shares nodes, so the walk is bounded by the output.
+function freezeDeep<T>(value: T): T {
+  if (typeof value === 'object' && value !== null) {
+    for (const item of Object.values(value)) freezeDeep(item);
+    Object.freeze(value);
+  }
+  return value;
+}
+
+// A stored key named `__proto__` must not become a prototype when the slots are copied.
+function copySlots(slots: Record<string, unknown>): Record<string, string> {
+  const copy: Record<string, string> = {};
+  for (const [key, hash] of Object.entries(slots)) {
+    if (key !== '__proto__') copy[key] = hash as string;
   }
   return Object.freeze(copy);
 }
 
 /** A deep, frozen copy of an install, or undefined when the value is not shaped like one. */
 export function sanitiseInstall(raw: unknown): Install | undefined {
-  if (!isRecord(raw) || !isRecord(raw.manifest) || !isRecord(raw.slots)) return undefined;
+  if (!isRecord(raw) || !isRecord(raw.slots)) return undefined;
   const { checksum, releaseId, slots, owed, manifestUrl, slicesBaseUrl, authenticated, signedQuery, sdkVersion, installedAt } = raw;
   if (
     typeof checksum !== 'string' ||
@@ -112,23 +118,21 @@ export function sanitiseInstall(raw: unknown): Install | undefined {
   ) {
     return undefined;
   }
-  try {
-    return Object.freeze({
-      checksum,
-      releaseId,
-      manifest: freezeCopy(raw.manifest) as Manifest,
-      slots: freezeCopy(slots) as Record<string, string>,
-      owed: Object.freeze([...owed]) as string[],
-      manifestUrl,
-      slicesBaseUrl,
-      authenticated,
-      ...(signedQuery === undefined ? {} : { signedQuery }),
-      sdkVersion,
-      installedAt,
-    });
-  } catch {
-    return undefined;
-  }
+  const manifest = decodeStoredManifest(raw.manifest);
+  if (manifest === null) return undefined;
+  return Object.freeze({
+    checksum,
+    releaseId,
+    manifest: freezeDeep(manifest),
+    slots: copySlots(slots),
+    owed: Object.freeze([...owed]) as string[],
+    manifestUrl,
+    slicesBaseUrl,
+    authenticated,
+    ...(signedQuery === undefined ? {} : { signedQuery }),
+    sdkVersion,
+    installedAt,
+  });
 }
 
 const NUMBER_FIELDS = ['lastCheck', 'lastPollAfter', 'backoffStep', 'notBefore', 'checkNowAt'] as const;
