@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { StrictMode } from 'react';
+import { Activity, StrictMode, version } from 'react';
 import { screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { TarjimProvider } from '../src/index.js';
@@ -190,5 +190,53 @@ describe('the runtime behind the provider', () => {
     await act(async () => {
       expect(await api.latest().checkNow()).toMatch(/^(noChange|notDue)$/);
     });
+  });
+});
+
+// Activity arrived in React 19; it is how a provider's effects are cleaned up and run again without a remount.
+describe.skipIf(Number(version.split('.')[0]) < 19)('a provider whose effects are cleaned up and run again', () => {
+  const tree = (r: ReturnType<typeof rig>, config: ReturnType<ReturnType<typeof rig>['world']['config']>, mode: 'visible' | 'hidden', api: ReturnType<typeof capture>) => (
+    <Activity mode={mode}>
+      <TarjimProvider config={config} start={r.start}>
+        <Reader />
+        <api.Capture />
+      </TarjimProvider>
+    </Activity>
+  );
+
+  it('stops a runtime that finished starting while it was hidden and starts a fresh one when shown', async () => {
+    const r = rig();
+    const config = r.world.config({ language: 'en' });
+    const api = capture();
+    const open = r.holdStart();
+    const view = mount(tree(r, config, 'visible', api));
+    view.rerender(tree(r, config, 'hidden', api));
+
+    open();
+    await until(() => r.runtimes.length === 1, 'the runtime that started while hidden');
+    await until(() => r.stopCount() === 1, 'that runtime to be stopped');
+
+    view.rerender(tree(r, config, 'visible', api));
+    await waitFor(() => expect(screen.getByTestId('reader').textContent).toBe('v1 b1 en|en'), { timeout: 1000 });
+    expect(r.start).toHaveBeenCalledTimes(2);
+    expect(r.runtimes).toHaveLength(2);
+    expect(r.stopCount()).toBe(1);
+  });
+
+  it('forgets a pending update when it is hidden, because the runtime that held it is stopped', async () => {
+    const r = rig();
+    const config = r.world.config({ language: 'en' });
+    const api = capture();
+    const view = mount(tree(r, config, 'visible', api));
+    await waitFor(() => expect(api.latest().t('a')).toBe('v1 b1 en'), { timeout: 1000 });
+    expect(await r.downloadNext('v2', 2)).toBe('downloaded');
+    await waitFor(() => expect(api.latest().pendingUpdate).toBe(true), { timeout: 1000 });
+
+    view.rerender(tree(r, config, 'hidden', api));
+    view.rerender(tree(r, config, 'visible', api));
+
+    await until(() => r.runtimes.length === 2, 'the second runtime');
+    await waitFor(() => expect(api.latest().ready).toBe(true), { timeout: 1000 });
+    expect(api.latest().pendingUpdate).toBe(false);
   });
 });

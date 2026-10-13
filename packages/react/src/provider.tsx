@@ -192,19 +192,25 @@ export function TarjimProvider({
       own.open(starting);
       starting.then(
         (runtime) => {
-          if (own.gone) return runtime.stop();
+          if (own.gone) {
+            // Cleared so that an effect that runs again (a hidden subtree shown) starts a runtime of its own.
+            own.started = undefined;
+            return runtime.stop();
+          }
           own.runtime = runtime;
           runtime.on('downloaded', () => (own.activateImmediately ? runtime.activatePendingUpdate() : setPending(true)));
           runtime.on('activated', () => setPending(false));
           setSource(runtime);
         },
         (error: unknown) => {
-          if (!own.gone) setFailure(error);
+          if (own.gone) own.started = undefined;
+          else setFailure(error);
         },
       );
     }
     return () => {
       own.gone = true;
+      setPending(false);
       if (own.runtime) {
         own.runtime.stop();
         own.runtime = own.started = undefined;
