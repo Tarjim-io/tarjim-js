@@ -114,6 +114,30 @@ describe('manifest over the CDN', () => {
   });
 });
 
+describe('an authenticated flag that is not exactly true', () => {
+  it.each([
+    ['the string "true"', 'true'],
+    ['the number 1', 1],
+  ])('takes the CDN path for %s: signature appended, no headers, key nowhere', async (_label, authenticated) => {
+    const release = simpleRelease();
+    const meta = { ...release.meta, authenticated } as unknown as Meta;
+    const client = clientFor(release.fetch);
+    const files = jsonFiles(release);
+
+    expect((await client.fetchManifest(meta)).kind).toBe('verified');
+    const { results } = await client.fetchSlices(meta, files);
+    expect([...results.values()].every((r) => r.kind === 'verified')).toBe(true);
+
+    expect(release.requests).toHaveLength(1 + files.length);
+    for (const { url, init } of release.requests) {
+      expect(url.endsWith(`?${SIGNED_QUERY}`)).toBe(true);
+      expect('headers' in init!).toBe(false);
+      expect(url).not.toContain(API_KEY);
+      expect(JSON.stringify(init)).not.toContain(API_KEY);
+    }
+  });
+});
+
 describe('references the CDN path refuses', () => {
   async function refusedAndNeverRequested(patch: Partial<Record<keyof Meta, unknown>>, call: 'manifest' | 'slices') {
     const release = simpleRelease();
