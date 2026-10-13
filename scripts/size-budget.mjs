@@ -6,7 +6,11 @@ import { gzipSync } from 'node:zlib';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 
-const BUDGETS = [{ name: '@tarjim/core', entry: 'packages/core/src/index.ts', maxBytes: 12 * 1024 }];
+const BUDGETS = [
+  { name: '@tarjim/core', entry: 'packages/core/src/index.ts', maxBytes: 12 * 1024 },
+  // The adapter alone: React and the SDK it wraps are counted elsewhere.
+  { name: '@tarjim/react', entry: 'packages/react/src/index.ts', maxBytes: 2 * 1024, external: ['react', 'react/jsx-runtime', '@tarjim/*'] },
+];
 // Measured on the shipped file, so it needs `pnpm build` first. 14923 bytes measured, rounded up to
 // 15 KB, plus 1 KB of headroom.
 const SCRIPT_TAG = { name: '@tarjim/browser (script tag)', file: 'packages/browser/dist/tarjim-browser.iife.js', maxBytes: 16 * 1024 };
@@ -20,7 +24,7 @@ function report(name, size, maxBytes) {
   console.log(`${name}: ${size} bytes min+gz (budget ${maxBytes})${over ? ' OVER BUDGET' : ''}`);
 }
 
-for (const { name, entry, maxBytes } of BUDGETS) {
+for (const { name, entry, maxBytes, external = [] } of BUDGETS) {
   const result = await build({
     entryPoints: [`${ROOT}${entry}`],
     bundle: true,
@@ -28,6 +32,8 @@ for (const { name, entry, maxBytes } of BUDGETS) {
     format: 'esm',
     target: 'es2020',
     write: false,
+    external,
+    jsx: 'automatic',
     logLevel: 'silent',
   });
   report(name, gzipped(result.outputFiles[0].contents), maxBytes);
