@@ -149,6 +149,8 @@ export function createDeliveryClient(options: DeliveryClientOptions): DeliveryCl
       typeof m['slicesBaseUrl'] === 'string' &&
       typeof m['schemaVersion'] === 'number' &&
       typeof m['pollAfter'] === 'number' &&
+      Number.isFinite(m['pollAfter']) &&
+      m['pollAfter'] >= 0 &&
       (typeof m['releaseId'] === 'string' || typeof m['releaseId'] === 'number') &&
       (m['authenticated'] === true || (typeof m['signedQuery'] === 'string' && m['signedQuery'] !== ''));
     return complete ? { kind: 'received', meta: m as Meta } : { kind: 'unreadable' };

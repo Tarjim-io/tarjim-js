@@ -217,6 +217,26 @@ describe('a 200 answer', () => {
   });
 
   it.each([
+    ['negative', { pollAfter: -1 }],
+    ['a string', { pollAfter: '60' }],
+    ['null', { pollAfter: null }],
+  ])('is unreadable when pollAfter is %s', async (_label, patch) => {
+    const meta = { ...goodMeta(), ...patch };
+    const outcome = await clientFor(answering(() => respond(200, meta))).fetchMeta({});
+
+    expect(outcome).toEqual({ kind: 'unreadable' });
+  });
+
+  it('is unreadable when pollAfter overflows to infinity, and accepts zero', async () => {
+    const raw = JSON.stringify(goodMeta()).replace(/"pollAfter":\d+/, '"pollAfter":1e999');
+    expect(raw).toContain('1e999');
+    expect(await clientFor(answering(() => respond(200, raw))).fetchMeta({})).toEqual({ kind: 'unreadable' });
+
+    const zero = await clientFor(answering(() => respond(200, { ...goodMeta(), pollAfter: 0 }))).fetchMeta({});
+    expect(zero.kind).toBe('received');
+  });
+
+  it.each([
     ['text', 'not json at all'],
     ['an array', '[1,2,3]'],
     ['a bare string', '"hello"'],
