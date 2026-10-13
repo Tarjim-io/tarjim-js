@@ -39,13 +39,13 @@ type Source = Pick<Runtime, 'language' | 'ready' | 't' | 'tArray' | 'entry' | 's
 const WAIT_MS = 1000;
 const RTL = ['ar', 'fa', 'he', 'ur', 'ps', 'yi', 'dv', 'ckb'];
 
-// Bundlers replace `process.env.NODE_ENV`; where nothing does, the read throws and there is no dev mode.
-function dev(): boolean {
-  try {
-    return process.env.NODE_ENV !== 'production';
-  } catch {
-    return false;
-  }
+// Development warnings are guarded inline, at each call site, by `typeof process` (the read throws where nothing
+// defines `process`) and `process.env.NODE_ENV`, which a bundler replaces, so the whole branch is removed from a
+// production build.
+function warn(noted: Set<string>, code: string, message: string): void {
+  if (noted.has(code)) return;
+  noted.add(code);
+  console.warn(`[tarjim] ${message}`);
 }
 
 function direction(language: string): 'rtl' | 'ltr' {
@@ -60,12 +60,12 @@ function direction(language: string): 'rtl' | 'ltr' {
 }
 
 /**
- * A page built ahead of time shows the release it was built with, so its text comes from `embedded`
- * alone: no store, no request, and a language switch only between the embedded locales.
+ * The text of `embedded` alone: no store, no request, and a language switch only between the embedded
+ * locales. A page built ahead of time shows exactly this for its whole life (`ready`); any other page shows
+ * it only until the SDK has started, so that a slow start leaves the embedded text on screen, not the keys.
  */
-function embeddedOnly(config: TarjimConfig): Source {
+function embeddedOnly(config: TarjimConfig, ready: boolean): Source {
   const slices = Array.isArray(config.embedded) ? config.embedded : [];
-  if (!Array.isArray(config.embedded) && dev()) console.error('[tarjim] hydrating needs `embedded` to be an array of slices; rendering the keys.');
   // As in the SDK: an entry that is not a record with a string locale takes no part in choosing the language.
   const locales = slices.flatMap((slice) => (typeof slice?.locale === 'string' ? [slice.locale] : []));
   const listeners = new Set<() => void>();
@@ -75,16 +75,17 @@ function embeddedOnly(config: TarjimConfig): Source {
       slices: new Map(),
       embedded: slices,
       locale,
-      defaultBundle: config.defaultBundle,
+      // The SDK refuses a config without one on its own terms; a render must not fail first.
+      defaultBundle: config.defaultBundle ?? { type: 'namespace', name: '' },
       legacyPercentPlaceholders: config.legacyPercentPlaceholders === true,
     });
   // The browser's languages are left out: the server render cannot know them, and the two must agree.
   let snapshot = open(
-    selectLocale({ ...(config.language ? { explicit: config.language } : {}), browser: [], fallback: config.fallbackLanguage, universe: locales, manifestHeld: true }).locale,
+    selectLocale({ ...(config.language ? { explicit: config.language } : {}), browser: [], fallback: config.fallbackLanguage ?? '', universe: locales, manifestHeld: true }).locale,
   );
 
   return {
-    ready: true,
+    ready,
     get language() {
       return snapshot.language;
     },
@@ -116,12 +117,6 @@ function embeddedOnly(config: TarjimConfig): Source {
 
 const Context = createContext<TarjimContextValue | null>(null);
 
-const never = () => () => undefined;
-const zero = () => 0;
-const keyOnly: Runtime['t'] = (key) => key;
-const noArray: Runtime['tArray'] = () => [];
-const noEntry: Runtime['entry'] = () => null;
-
 export function TarjimProvider({
   config,
   children,
@@ -130,10 +125,13 @@ export function TarjimProvider({
   setDocumentLanguage = true,
   hydrating = false,
   start = (given) => Tarjim.start(given),
-}: TarjimProviderProps): ReactNode {
+}: TarjimProviderProps) {
   // Everything that must outlive a render without causing one. The configuration is read here, once.
   const [own] = useState(() => {
-    const local = hydrating ? embeddedOnly(config) : undefined;
+    const local = embeddedOnly(config, hydrating);
+    if (typeof process !== 'undefined' && process.env.NODE_ENV !== 'production' && hydrating && !Array.isArray(config.embedded)) {
+      console.error('[tarjim] hydrating needs `embedded` to be an array of slices; rendering the keys.');
+    }
     // Settled by the start effect, which runs after those of the children: an earlier call waits here.
     let open!: (starting: Promise<Source>) => void;
     const wait = new Promise<Source>((resolve) => (open = resolve));
@@ -148,26 +146,23 @@ export function TarjimProvider({
       reported: false,
       gone: false,
       runtime: undefined as Runtime | undefined,
-      started: local && (Promise.resolve(local) as Promise<Source>),
+      started: hydrating ? (Promise.resolve(local) as Promise<Source>) : undefined,
       setLanguage: (language: string): Promise<void> => (state.started ?? wait).then((source) => source.setLanguage(language)),
       checkNow: (): Promise<CheckResult> => (state.started ?? wait).then((source) => source.checkNow()),
       activate: (): boolean => state.runtime?.activatePendingUpdate() ?? false,
     };
     return state;
   });
-  const [source, setSource] = useState<Source | undefined>(own.local);
+  const [source, setSource] = useState<Source | undefined>(hydrating ? own.local : undefined);
   const [pending, setPending] = useState(false);
   const [timedOut, setTimedOut] = useState(false);
   const [failure, setFailure] = useState<unknown>(null);
 
+  // Until the SDK has started, the embedded text answers; `source` is only set once it has.
+  const active = source ?? own.local;
   // Hydration needs a server snapshot; the embedded text is the same on both sides.
-  const version = useSyncExternalStore(source?.subscribe ?? never, source?.getVersion ?? zero, source?.getVersion ?? zero);
-
-  const note = (code: string, message: string): void => {
-    if (own.noted.has(code) || !dev()) return;
-    own.noted.add(code);
-    console.warn(`[tarjim] ${message}`);
-  };
+  const version = useSyncExternalStore(active.subscribe, active.getVersion, active.getVersion);
+  const language = active.language;
 
   useEffect(() => {
     own.activateImmediately = activateImmediately;
@@ -176,7 +171,9 @@ export function TarjimProvider({
 
   useEffect(() => {
     if (own.hydrating) {
-      if (own.config.waitForContent !== undefined) note('wait', 'waitForContent is ignored while hydrating: the page shows its embedded text.');
+      if (typeof process !== 'undefined' && process.env.NODE_ENV !== 'production' && own.config.waitForContent !== undefined) {
+        warn(own.noted, 'wait', 'waitForContent is ignored while hydrating: the page shows its embedded text.');
+      }
       if (own.config.embedded !== undefined && !Array.isArray(own.config.embedded) && !own.reported) {
         own.reported = true;
         try {
@@ -225,14 +222,18 @@ export function TarjimProvider({
   }, []);
 
   useEffect(() => {
-    if (config !== own.config) note('config', 'The config object changed after the first render and is ignored; only `language` is applied. Create the config once, outside the component.');
+    if (typeof process !== 'undefined' && process.env.NODE_ENV !== 'production' && config !== own.config) {
+      warn(own.noted, 'config', 'The config object changed after the first render and is ignored; only `language` is applied. Create the config once, outside the component.');
+    }
   }, [config]);
 
   useEffect(() => {
     const { language } = config;
     if (!language || language === own.language) return;
     own.language = language;
-    own.setLanguage(language).catch(() => note(`language ${language}`, `could not switch to '${language}'.`));
+    own.setLanguage(language).catch(() => {
+      if (typeof process !== 'undefined' && process.env.NODE_ENV !== 'production') warn(own.noted, `language ${language}`, `could not switch to '${language}'.`);
+    });
   }, [config.language]);
 
   useEffect(() => {
@@ -241,7 +242,6 @@ export function TarjimProvider({
     return () => clearTimeout(timer);
   }, [source]);
 
-  const language = source?.language ?? config.language ?? config.fallbackLanguage;
   useEffect(() => {
     if (!source || !setDocumentLanguage) return;
     const root = document.documentElement;
@@ -258,18 +258,18 @@ export function TarjimProvider({
   // `version` is only listed so that a changed snapshot makes a new value, and with it a new `t`.
   const value = useMemo<TarjimContextValue>(
     () => ({
-      t: source?.t ?? keyOnly,
-      tArray: source?.tArray ?? noArray,
-      entry: source?.entry ?? noEntry,
-      language: source?.language ?? own.config.language ?? own.config.fallbackLanguage,
+      t: active.t,
+      tArray: active.tArray,
+      entry: active.entry,
+      language,
       setLanguage: own.setLanguage,
       checkNow: own.checkNow,
       activatePendingUpdate: own.activate,
-      ready: source?.ready ?? false,
+      ready: active.ready,
       pendingUpdate: pending,
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [source, version, pending],
+    [active, version, pending],
   );
 
   if (failure) throw failure;

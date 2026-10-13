@@ -47,6 +47,32 @@ describe('before the local text is ready', () => {
     await screen.findByTestId('reader');
   });
 
+  it('gives up waiting after about a second and renders the children with the embedded text', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const never = vi.fn(() => new Promise<Tarjim>(() => undefined));
+    const api = capture();
+    const r = rig();
+    mount(
+      <TarjimProvider config={r.world.config({ language: 'en' })} start={never} fallback={<p>loading</p>}>
+        <Reader />
+        <api.Capture />
+      </TarjimProvider>,
+    );
+
+    await act(async () => {
+      vi.advanceTimersByTime(900);
+    });
+    expect(screen.getByText('loading')).toBeTruthy();
+    expect(screen.queryByTestId('reader')).toBeNull();
+
+    await act(async () => {
+      vi.advanceTimersByTime(400);
+    });
+    expect(screen.queryByText('loading')).toBeNull();
+    expect(screen.getByTestId('reader').textContent).toBe('embedded a|en');
+    expect(api.latest().ready).toBe(false);
+  });
+
   it('answers with the keys after that second when there is no embedded text', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     const never = vi.fn(() => new Promise<Tarjim>(() => undefined));
@@ -61,6 +87,56 @@ describe('before the local text is ready', () => {
       vi.advanceTimersByTime(1100);
     });
     expect(screen.getByTestId('reader').textContent).toBe('a|en');
+  });
+
+  it('draws the embedded text without throwing when some embedded entries are not slices', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const never = vi.fn(() => new Promise<Tarjim>(() => undefined));
+    const r = rig();
+    mount(
+      <TarjimProvider config={r.world.config({ language: 'en', embedded: [null, 3, 'x', { locale: 7 }, embedded('en')] })} start={never}>
+        <Reader />
+      </TarjimProvider>,
+    );
+    await act(async () => {
+      vi.advanceTimersByTime(1100);
+    });
+    expect(screen.getByTestId('reader').textContent).toBe('embedded a|en');
+  });
+
+  it('does not throw while rendering with a config the SDK will refuse', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const never = vi.fn(() => new Promise<Tarjim>(() => undefined));
+    const r = rig();
+    mount(
+      <TarjimProvider config={r.world.config({ language: undefined, fallbackLanguage: undefined, defaultBundle: undefined })} start={never}>
+        <Reader />
+      </TarjimProvider>,
+    );
+    await act(async () => {
+      vi.advanceTimersByTime(1100);
+    });
+    expect(screen.getByTestId('reader')).toBeTruthy();
+  });
+
+  it('keeps ready false and still has the language while only the embedded text answers', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const never = vi.fn(() => new Promise<Tarjim>(() => undefined));
+    const api = capture();
+    const r = rig();
+    mount(
+      <TarjimProvider config={r.world.config({ language: 'fr' })} start={never}>
+        <api.Capture />
+      </TarjimProvider>,
+    );
+    await act(async () => {
+      vi.advanceTimersByTime(1100);
+    });
+
+    expect(api.latest().ready).toBe(false);
+    expect(api.latest().language).toBe('fr');
+    expect(api.latest().t('a')).toBe('embedded a fr');
+    expect(api.latest().entry('a')?.value).toBe('embedded a fr');
   });
 
   it('does not wait for the network, whatever waitForContent the app asked for', async () => {
