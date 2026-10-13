@@ -234,7 +234,7 @@ export function createDeliveryClient(options: DeliveryClientOptions): DeliveryCl
     }
   }
 
-  async function fetchSlices(meta: Meta, files: SliceFile[], identity?: MetaIdentity): Promise<SlicesResult> {
+  async function fetchSlices(meta: Meta, files: SliceFile[], identity: MetaIdentity): Promise<SlicesResult> {
     try {
       const unique = new Map<string, SliceFile>();
       for (const file of files) if (!unique.has(file.hash)) unique.set(file.hash, file);

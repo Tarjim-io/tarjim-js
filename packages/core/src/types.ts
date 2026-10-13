@@ -93,5 +93,5 @@ export interface SlicesResult {
 export interface DeliveryClient {
   fetchMeta(identity?: MetaIdentity): Promise<MetaOutcome>;
   fetchManifest(meta: Meta): Promise<ManifestOutcome>;
-  fetchSlices(meta: Meta, files: SliceFile[], identity?: MetaIdentity): Promise<SlicesResult>;
+  fetchSlices(meta: Meta, files: SliceFile[], identity: MetaIdentity): Promise<SlicesResult>;
 }

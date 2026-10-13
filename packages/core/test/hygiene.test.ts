@@ -79,9 +79,9 @@ describe('key and signature hygiene', () => {
     const stale = { ...slices.meta, signedQuery: SIGNED_QUERY };
     const reread = await clientFor(slices.fetch).fetchSlices(stale, jsonFiles(slices), { language: 'en' });
     texts.push(serialise({ results: reread.results, reread: reread.reread }));
-    const refused = await clientFor(slices.fetch).fetchSlices({ ...stale, slicesBaseUrl: 'http://x.example.invalid/' }, jsonFiles(slices));
+    const refused = await clientFor(slices.fetch).fetchSlices({ ...stale, slicesBaseUrl: 'http://x.example.invalid/' }, jsonFiles(slices), {});
     texts.push(serialise({ results: refused.results }));
-    const rawFailures = await failing.fetchSlices(stale, jsonFiles(slices));
+    const rawFailures = await failing.fetchSlices(stale, jsonFiles(slices), {});
     texts.push(serialise({ results: rawFailures.results }));
 
     expect(kinds).toEqual([
@@ -112,7 +112,7 @@ describe('key and signature hygiene', () => {
       const client = clientFor(fetchFn, { timeoutMs: 30 });
       expect(await client.fetchMeta({})).toEqual({ kind: 'network' });
       expect(await client.fetchManifest(release.meta)).toEqual({ kind: 'network' });
-      const { results } = await client.fetchSlices(release.meta, files);
+      const { results } = await client.fetchSlices(release.meta, files, {});
       expect([...results.values()].every((r) => r.kind === 'network')).toBe(true);
     }
   });

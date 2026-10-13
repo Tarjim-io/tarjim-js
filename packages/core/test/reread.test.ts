@@ -278,7 +278,7 @@ describe('the single re-read of the meta', () => {
 
     expect(results.get(en)?.kind).toBe('verified');
     expect(objectRequests(en).map((r) => r.url)).toContain(`${stale.slicesBaseUrl}${en}.json?${SIGNED_QUERY}`);
-    expect(objectRequests(en).at(-1)!.url).toBe(`${moved}${en}.json?${SIGNED_QUERY}`);
+    expect(objectRequests(en).slice(-1)[0]!.url).toBe(`${moved}${en}.json?${SIGNED_QUERY}`);
   });
 
   it('spends the re-read on a slice that timed out', async () => {

@@ -42,7 +42,7 @@ describe('the core stays free of the page', () => {
     const client = clientFor(release.fetch);
     const meta = await client.fetchMeta({ language: 'en' });
     const manifest = await client.fetchManifest(release.meta);
-    const { results } = await client.fetchSlices(release.meta, jsonFiles(release));
+    const { results } = await client.fetchSlices(release.meta, jsonFiles(release), {});
 
     expect(meta.kind).toBe('received');
     expect(manifest.kind).toBe('verified');

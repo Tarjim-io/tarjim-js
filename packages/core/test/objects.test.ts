@@ -125,7 +125,7 @@ describe('an authenticated flag that is not exactly true', () => {
     const files = jsonFiles(release);
 
     expect((await client.fetchManifest(meta)).kind).toBe('verified');
-    const { results } = await client.fetchSlices(meta, files);
+    const { results } = await client.fetchSlices(meta, files, {});
     expect([...results.values()].every((r) => r.kind === 'verified')).toBe(true);
 
     expect(release.requests).toHaveLength(1 + files.length);
@@ -144,7 +144,7 @@ describe('references the CDN path refuses', () => {
     const client = clientFor(release.fetch);
     const files = jsonFiles(release);
 
-    const good = call === 'manifest' ? await client.fetchManifest(release.meta) : (await client.fetchSlices(release.meta, files)).results.get(files[0]!.hash);
+    const good = call === 'manifest' ? await client.fetchManifest(release.meta) : (await client.fetchSlices(release.meta, files, {})).results.get(files[0]!.hash);
     expect(good?.kind).toBe('verified');
     const before = release.requests.length;
     expect(before).toBeGreaterThan(0);
@@ -153,7 +153,7 @@ describe('references the CDN path refuses', () => {
     if (call === 'manifest') {
       expect(await client.fetchManifest(meta)).toEqual({ kind: 'refused' });
     } else {
-      const { results } = await client.fetchSlices(meta, files);
+      const { results } = await client.fetchSlices(meta, files, {});
       expect([...results.values()]).toEqual(files.map(() => ({ kind: 'refused' })));
     }
     expect(release.requests).toHaveLength(before);
@@ -215,7 +215,7 @@ describe('objects over the origin path', () => {
   it('sends both headers to every slice and never appends a signature', async () => {
     const release = simpleRelease({ mode: 'origin', metaOverrides: { signedQuery: 'Policy=ignored' } });
     const files = jsonFiles(release);
-    const { results } = await clientFor(release.fetch).fetchSlices(release.meta, files);
+    const { results } = await clientFor(release.fetch).fetchSlices(release.meta, files, {});
 
     expect([...results.values()].map((r) => r.kind)).toEqual(['verified', 'verified']);
     expect(release.requests).toHaveLength(files.length);
@@ -272,10 +272,10 @@ describe('objects over the origin path', () => {
     const release = simpleRelease({ mode: 'origin' });
     const client = clientFor(release.fetch);
     const files = jsonFiles(release);
-    expect([...(await client.fetchSlices(release.meta, files)).results.values()].every((r) => r.kind === 'verified')).toBe(true);
+    expect([...(await client.fetchSlices(release.meta, files, {})).results.values()].every((r) => r.kind === 'verified')).toBe(true);
     const before = release.requests.length;
 
-    const { results } = await client.fetchSlices({ ...release.meta, slicesBaseUrl }, files);
+    const { results } = await client.fetchSlices({ ...release.meta, slicesBaseUrl }, files, {});
     expect([...results.values()]).toEqual(files.map(() => ({ kind: 'refused' })));
     expect(release.requests).toHaveLength(before);
   });
@@ -291,7 +291,7 @@ describe('origin mode with a delivery URL that is not http or https', () => {
 
     expect(await client.fetchManifest(release.meta)).toEqual({ kind: 'refused' });
     const files = jsonFiles(release);
-    const { results } = await client.fetchSlices(release.meta, files);
+    const { results } = await client.fetchSlices(release.meta, files, {});
     expect([...results.values()]).toEqual(files.map(() => ({ kind: 'refused' })));
     expect(release.requests).toHaveLength(0);
   });
@@ -302,10 +302,10 @@ describe('a slices base over the origin path', () => {
     const release = simpleRelease({ mode: 'origin' });
     const client = clientFor(release.fetch);
     const files = jsonFiles(release);
-    expect([...(await client.fetchSlices(release.meta, files)).results.values()].every((r) => r.kind === 'verified')).toBe(true);
+    expect([...(await client.fetchSlices(release.meta, files, {})).results.values()].every((r) => r.kind === 'verified')).toBe(true);
     const before = release.requests.length;
 
-    const { results } = await client.fetchSlices({ ...release.meta, slicesBaseUrl: 'releases/7/slices' }, files);
+    const { results } = await client.fetchSlices({ ...release.meta, slicesBaseUrl: 'releases/7/slices' }, files, {});
     expect([...results.values()]).toEqual(files.map(() => ({ kind: 'refused' })));
     expect(release.requests).toHaveLength(before);
   });
@@ -315,7 +315,7 @@ describe('slices', () => {
   it('requests each slice at the base plus hash.json plus the signature, with no headers', async () => {
     const release = simpleRelease();
     const files = jsonFiles(release);
-    const { results, meta, reread } = await clientFor(release.fetch).fetchSlices(release.meta, files);
+    const { results, meta, reread } = await clientFor(release.fetch).fetchSlices(release.meta, files, {});
 
     expect(release.requests.map((r) => r.url).sort()).toEqual(
       files.map((f) => `${release.meta.slicesBaseUrl}${f.hash}.json?${SIGNED_QUERY}`).sort(),
@@ -339,7 +339,7 @@ describe('slices', () => {
     if (manifestOutcome.kind !== 'verified') return;
 
     const files = Object.values(manifestOutcome.manifest.slices['ns180']!);
-    const { results } = await client.fetchSlices(served.meta, files);
+    const { results } = await client.fetchSlices(served.meta, files, {});
 
     expect(results.size).toBe(3);
     for (const file of files) {
@@ -352,7 +352,7 @@ describe('slices', () => {
 
   it('reports a hash mismatch without returning the bytes', async () => {
     const release = simpleRelease({ tamper: { slices: { 'b1/en': 'hash' } } });
-    const { results } = await clientFor(release.fetch).fetchSlices(release.meta, jsonFiles(release));
+    const { results } = await clientFor(release.fetch).fetchSlices(release.meta, jsonFiles(release), {});
 
     const en = results.get(release.manifest.slices['b1']!['en']!.json.hash);
     expect(en).toEqual({ kind: 'hashMismatch' });
@@ -362,7 +362,7 @@ describe('slices', () => {
 
   it('reports a size mismatch', async () => {
     const release = simpleRelease({ tamper: { slices: { 'b1/fr': 'size' } } });
-    const { results } = await clientFor(release.fetch).fetchSlices(release.meta, jsonFiles(release));
+    const { results } = await clientFor(release.fetch).fetchSlices(release.meta, jsonFiles(release), {});
 
     expect(results.get(release.manifest.slices['b1']!['fr']!.json.hash)).toEqual({ kind: 'sizeMismatch' });
     expect(results.get(release.manifest.slices['b1']!['en']!.json.hash)?.kind).toBe('verified');
@@ -371,7 +371,7 @@ describe('slices', () => {
   it('fetches a hash listed twice once', async () => {
     const release = simpleRelease();
     const [first] = jsonFiles(release) as [SliceFile];
-    const { results } = await clientFor(release.fetch).fetchSlices(release.meta, [first, { ...first }]);
+    const { results } = await clientFor(release.fetch).fetchSlices(release.meta, [first, { ...first }], {});
 
     expect(release.requests).toHaveLength(1);
     expect(results.size).toBe(1);
@@ -380,7 +380,7 @@ describe('slices', () => {
 
   it('requests nothing for an empty list', async () => {
     const release = simpleRelease();
-    const { results, reread } = await clientFor(release.fetch).fetchSlices(release.meta, []);
+    const { results, reread } = await clientFor(release.fetch).fetchSlices(release.meta, [], {});
 
     expect(results.size).toBe(0);
     expect(reread).toBe(false);
@@ -391,7 +391,7 @@ describe('slices', () => {
     const release = simpleRelease({ extraTypes: ['strings', 'stringsdict', 'xml'] });
     const manifest = decodeManifest(release.manifest);
     const files = Object.values(manifest!.slices['b1']!);
-    const { results } = await clientFor(release.fetch).fetchSlices(release.meta, files);
+    const { results } = await clientFor(release.fetch).fetchSlices(release.meta, files, {});
 
     expect(release.requests).toHaveLength(2);
     expect(release.requests.every((r) => r.url.includes('.json?'))).toBe(true);
@@ -409,7 +409,7 @@ describe('slices', () => {
       await new Promise((resolve) => setTimeout(resolve, 30));
       inFlight -= 1;
     });
-    const { results } = await clientFor(release.fetch).fetchSlices(release.meta, jsonFiles(release));
+    const { results } = await clientFor(release.fetch).fetchSlices(release.meta, jsonFiles(release), {});
 
     expect(peak).toBe(2);
     expect([...results.values()].every((r) => r.kind === 'verified')).toBe(true);
@@ -424,7 +424,7 @@ describe('slices', () => {
     const release = simpleRelease();
     const files = jsonFiles(release);
     const fetchFn = vi.fn(async () => answer());
-    const { results, reread } = await clientFor(fetchFn).fetchSlices(release.meta, files);
+    const { results, reread } = await clientFor(fetchFn).fetchSlices(release.meta, files, {});
 
     expect([...results.values()]).toEqual(files.map(() => expected));
     expect(fetchFn).toHaveBeenCalledTimes(files.length);
@@ -434,7 +434,7 @@ describe('slices', () => {
   it('keeps a 404 problem body from leaking into the outcome', async () => {
     const release = simpleRelease({ mode: 'origin' });
     release.hook(({ kind }) => (kind === 'object' ? problem(404, 'delivery.object_not_found') : undefined));
-    const { results } = await clientFor(release.fetch).fetchSlices(release.meta, jsonFiles(release));
+    const { results } = await clientFor(release.fetch).fetchSlices(release.meta, jsonFiles(release), {});
 
     expect([...results.values()]).toEqual([
       { kind: 'unfetchable', status: 404 },

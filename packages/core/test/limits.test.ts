@@ -34,7 +34,7 @@ describe('how much of a body is read', () => {
     release.hook(({ kind }) => (kind === 'object' ? endless.response() : undefined));
 
     const started = Date.now();
-    const { results } = await clientFor(release.fetch).fetchSlices(release.meta, files.slice(0, 1));
+    const { results } = await clientFor(release.fetch).fetchSlices(release.meta, files.slice(0, 1), {});
 
     expect([...results.values()]).toEqual([{ kind: 'sizeMismatch' }]);
     expect(endless.state.cancelled).toBe(true);
@@ -105,7 +105,7 @@ describe('a body that stalls mid-stream', () => {
   it('is network for a slice', async () => {
     const release = stalling('object');
     const files = jsonFiles(release);
-    const { results } = await clientFor(release.fetch, { timeoutMs: 60 }).fetchSlices(release.meta, files.slice(0, 1));
+    const { results } = await clientFor(release.fetch, { timeoutMs: 60 }).fetchSlices(release.meta, files.slice(0, 1), {});
 
     expect([...results.values()]).toEqual([{ kind: 'network' }]);
   });
