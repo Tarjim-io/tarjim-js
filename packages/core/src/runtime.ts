@@ -157,6 +157,21 @@ export async function createRuntime(config: TarjimConfig, platform: Platform): P
     (fallbackLanguage && typeof fallbackLanguage === 'string' ? null : 'fallbackLanguage is required');
   if (problem !== null && config.strict) throw new TarjimConfigError(problem);
 
+  // Armed before the first await: the wait is measured from the call to start, not from when storage opens.
+  const { timers, visibility } = platform;
+  const wait = Number(config.waitForContent);
+  let firstDone = (): void => undefined;
+  const timeout =
+    timers && wait > 0
+      ? new Promise<void>((resolve) => {
+          const handle = timers.set(resolve, wait);
+          firstDone = () => {
+            timers.clear(handle);
+            resolve();
+          };
+        })
+      : undefined;
+
   let offline = problem !== null ? 'invalid-configuration' : platform.secureContext ? undefined : 'insecure-context';
   let opened: Store | undefined;
   if (offline === undefined) {
@@ -264,9 +279,13 @@ export async function createRuntime(config: TarjimConfig, platform: Platform): P
     manifestHeld: activeInstall !== undefined,
   }).locale;
   let current = await load(activeInstall, target, previous);
-  if (store && activeInstall && current.missing.length) {
-    const { checksum } = activeInstall;
-    const owed = current.missing;
+  // Written after the first check, so a reader who sees the file owed also sees that check's backoff.
+  let toOwe = store && activeInstall ? current.missing : [];
+  async function markOwed(): Promise<void> {
+    const owed = toOwe;
+    toOwe = [];
+    const checksum = activeInstall?.checksum;
+    if (!store || !owed.length || checksum === undefined) return;
     await store.withLock(() =>
       store.updateState((s) =>
         s.active?.checksum === checksum ? { ...s, active: { ...s.active, owed: [...new Set([...s.active.owed, ...owed])] } } : s,
@@ -323,7 +342,6 @@ export async function createRuntime(config: TarjimConfig, platform: Platform): P
       : undefined;
 
   let scheduler: Scheduler | undefined;
-  let firstDone = (): void => undefined;
 
   async function reportAll(result: CycleResult): Promise<void> {
     for (const { code, ...rest } of result.conditions) {
@@ -373,10 +391,10 @@ export async function createRuntime(config: TarjimConfig, platform: Platform): P
       return 'failed';
     } finally {
       jitter = platform.random();
+      await markOwed();
     }
   }
 
-  const { timers, visibility } = platform;
   if (live && store && timers) {
     scheduler = createScheduler({
       check: () => run('scheduled'),
@@ -386,19 +404,18 @@ export async function createRuntime(config: TarjimConfig, platform: Platform): P
       ...(visibility ? { visibility } : {}),
     });
   }
-  const wait = Number(config.waitForContent);
-  const gate =
-    scheduler && timers && wait > 0 && !activeInstall
-      ? new Promise<void>((resolve) => {
-          const handle = timers.set(resolve, wait);
-          firstDone = () => {
-            timers.clear(handle);
-            resolve();
-          };
-        })
-      : undefined;
+  const waiting = scheduler !== undefined && !activeInstall;
+  if (!waiting) firstDone();
+  if (scheduler && toOwe.length) {
+    // An unreadable file is worth a check now, though a backoff still holds it off.
+    await store?.updateState((s) => {
+      const next = { ...s };
+      delete next.lastCheck;
+      return next;
+    });
+  } else await markOwed();
   scheduler?.start();
-  await gate;
+  if (waiting) await timeout;
 
   const persist = config.persistLanguage ?? config.language === undefined;
   const lacks = (install: Install | undefined, locale: string): boolean =>
