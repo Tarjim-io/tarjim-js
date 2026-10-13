@@ -70,11 +70,5 @@ describe('against the recorded release', () => {
     expect(client.active).toBe(false);
     expect(codes()).toEqual(['unbound-key']);
     expect(requestsOfKind(served, 'manifest')).toHaveLength(0);
-
-    const allowed = await startClient(serveRecording(path.join(RECORDED, 'unbound-latest')), {
-      config: { allowUnboundKey: true },
-    });
-    expect(allowed.client.active).toBe(true);
-    expect(allowed.client.t('app.title')).toBe('Tarjim');
   });
 });

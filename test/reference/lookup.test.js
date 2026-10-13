@@ -160,11 +160,11 @@ describe('entry', () => {
 
   it('drops attributes outside the allow-list and non-string values, reporting once', async () => {
     const keys = {
-      one: leaf(1, 'a', {
+      one: leaf(1, 'https://media.example.com/a.png', {
         type: 'image',
         attributes: { alt: 'ok', onerror: 'alert(1)', style: 'x', class: 'sneaky', width: 640, 'data-x': 'y' },
       }),
-      two: leaf(2, 'b', { type: 'image', attributes: { onclick: 'z' } }),
+      two: leaf(2, 'https://media.example.com/b.png', { type: 'image', attributes: { onclick: 'z' } }),
     };
     const { client, codes } = await clientFor(keys);
     const one = plainData(client.entry('one'));
@@ -337,7 +337,7 @@ describe('text only', () => {
     const log = [];
     const markup = '<img src=x onerror="alert(1)"> & <b>bold</b>';
     const { client } = await clientFor(
-      { html: leaf(1, markup), image: leaf(2, markup, { type: 'image', attributes: { alt: markup } }) },
+      { html: leaf(1, markup), image: leaf(2, 'https://media.example.com/a.png', { type: 'image', attributes: { alt: markup } }) },
       { globals: { document: accessSpy('document', log) } },
     );
     expect(client.t('html')).toBe(markup);

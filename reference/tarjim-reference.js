@@ -201,11 +201,19 @@
       id: typeof raw.id === 'string' || (typeof raw.id === 'number' && isFinite(raw.id)) ? String(raw.id) : null,
       value: typeof raw.value === 'string' ? raw.value : null,
       type: typeof raw.type === 'string' ? raw.type : null,
-      className: typeof raw.class === 'string' ? raw.class : null,
+      className: typeof raw.class === 'string' && /^[A-Za-z0-9_ -]*$/.test(raw.class) ? raw.class : null,
       attributes: isObject(raw.attributes) ? raw.attributes : null,
       pluralIds: Array.isArray(raw.plural_child_keys) ? raw.plural_child_keys.map(String) : null,
       arrayIds: Array.isArray(raw.string_array_child_keys) ? raw.string_array_child_keys.map(String) : null,
     };
+  }
+
+  function isHttpsUrl(value) {
+    try {
+      return new URL(value).protocol === 'https:';
+    } catch (e) {
+      return false;
+    }
   }
 
   // Maps without a prototype, so a key called "__proto__" or "constructor" is just a key.
@@ -447,10 +455,16 @@
         });
       }
       if (dropped.length) state.report('attribute-dropped', 'Attributes outside the allow-list were dropped', { names: dropped });
+      var type = leaf.type === null ? 'text' : leaf.type;
+      // The page puts a media value into src or href, where a script or data URL would run.
+      if (type !== 'text' && !isHttpsUrl(leaf.value)) {
+        state.report('media-url-rejected', 'A media value is not an https URL and was not returned');
+        return null;
+      }
       return {
         value: leaf.value,
         id: leaf.id,
-        type: leaf.type === null ? 'text' : leaf.type,
+        type: type,
         attributes: Object.keys(attributes).length ? attributes : null,
         className: leaf.className,
       };
@@ -568,7 +582,8 @@
       return null;
     }
     // A key that is bound to no track cannot receive a release, so nothing else is requested.
-    if (body.track === null && session.config.allowUnboundKey !== true) {
+    // Anything but a string counts as unbound, a missing field included.
+    if (typeof body.track !== 'string') {
       session.report('unbound-key', 'The API key is not bound to a track');
       return null;
     }
@@ -664,6 +679,12 @@
   }
 
   async function fetchSlot(session, slot, signedQuery) {
+    // The hash becomes part of the address, so anything but 64 hex digits (a "../" for one) must
+    // never reach a URL.
+    if (!/^[0-9a-f]{64}$/.test(slot.file.hash) || !Number.isInteger(slot.file.size) || slot.file.size < 0) {
+      session.report('object-unavailable', 'A slice entry in the manifest is malformed');
+      return 'failed';
+    }
     var request = objectRequest(session, session.meta.slicesBaseUrl + slot.file.hash + '.json', signedQuery);
     if (!request) {
       session.report('meta-invalid', 'The slice address in the meta document is not usable');

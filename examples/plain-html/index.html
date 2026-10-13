@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <!-- connect-src lists your delivery host and the CDN host your release is served from. -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self' 'unsafe-inline'; connect-src https://delivery.example.com https://cdn.example.com"
+    />
+    <title>Tarjim reference client</title>
+  </head>
+  <body>
+    <h1 data-key="app.title">app.title</h1>
+    <p data-key="cart.items" data-count="3">cart.items</p>
+
+    <script src="tarjim-reference.js"></script>
+    <script>
+      TarjimReference.start({
+        deliveryUrl: 'https://delivery.example.com/copy/it/from/the/console/delivery/meta',
+        apiKey: 'YOUR-DELIVERY-KEY', // a key bound to a track and stage; it is public in this page
+        appVersion: '1.0.0', // your site's release; change it on every deploy
+        defaultBundle: { type: 'namespace', name: 'default' },
+        language: document.documentElement.lang,
+        fallbackLanguage: 'en',
+      }).then(function (tarjim) {
+        document.querySelectorAll('[data-key]').forEach(function (element) {
+          var count = element.getAttribute('data-count');
+          var args = count === null ? undefined : { count: Number(count) };
+          // textContent, never innerHTML: translated values are untrusted text.
+          element.textContent = tarjim.t(element.getAttribute('data-key'), args);
+        });
+      });
+    </script>
+  </body>
+</html>

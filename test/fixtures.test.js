@@ -25,7 +25,7 @@ const LEAKS = [
   ['a CloudFront policy', /Policy=(?!REDACTED)/],
   ['a CloudFront key pair id', /Key-Pair-Id=(?!REDACTED)/],
   ['an amazonaws or cloudfront host', /amazonaws\.com|cloudfront\.net/],
-  ['an internal ticket id', /\bTJ-\d+/],
+  ['a ticket id', /\b[A-Z]{2,}-\d{2,}\b/],
 ];
 
 // Any scheme-relative authority, also JSON-escaped (`https:\/\/host`) or protocol-relative (`//host`).

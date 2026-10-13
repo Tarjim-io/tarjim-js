@@ -283,8 +283,7 @@ jq -ec --arg t "$tenant_id" --arg p "$project_id" '
 if grep -qE "Signature=[^R]|Key-Pair-Id=[^R]" "$work/meta.redacted"; then
   fail "the scrubbed meta still carries a signature"
 fi
-# CDN paths differ by delivery mode (`releases/<t>/<p>/`, `builds/<t>/<p>/`); a form the rewrite
-# does not know must stop the capture, not reach a public fixture.
+# URL layouts vary; one the rewrite does not know must stop the capture, not reach a public fixture.
 if jq -r '.manifestUrl, .slicesBaseUrl' <"$work/meta.redacted" | grep -qE "/(t/)?${tenant_id}/(projects/)?${project_id}/"; then
   fail "the scrubbed meta still carries the real tenant and project ids"
 fi
