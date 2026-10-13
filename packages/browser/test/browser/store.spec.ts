@@ -19,7 +19,10 @@ let bundle = '';
 test.beforeAll(async () => {
   const result = await build({
     entryPoints: [fileURLToPath(new URL('../../src/index.ts', import.meta.url))],
-    alias: { '@tarjim/core': fileURLToPath(new URL('../../../core/src/index.ts', import.meta.url)) },
+    alias: {
+      '@tarjim/core/internal': fileURLToPath(new URL('../../../core/src/internal.ts', import.meta.url)),
+      '@tarjim/core': fileURLToPath(new URL('../../../core/src/index.ts', import.meta.url)),
+    },
     bundle: true,
     format: 'esm',
     write: false,

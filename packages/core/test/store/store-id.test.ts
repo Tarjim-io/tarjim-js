@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { storeId } from '../../src/index.js';
+import { storeId } from '../../src/internal.js';
 import { API_KEY, DELIVERY_URL, hashOf } from '../helpers/store-contract.js';
 
 describe('storeId', () => {

@@ -1,6 +1,6 @@
 import { IDBDatabase, IDBFactory, IDBKeyRange, IDBObjectStore } from 'fake-indexeddb';
 import { describe, expect, it, vi } from 'vitest';
-import { BUSY, storeId } from '@tarjim/core';
+import { BUSY, storeId } from '@tarjim/core/internal';
 import { openStore } from '../src/index.js';
 import { makeInstall, slice, storeContract, until } from '../../core/test/helpers/store-contract.js';
 import {

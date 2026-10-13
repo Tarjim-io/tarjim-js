@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { referencedHashes, withInstall } from '../../src/index.js';
+import { referencedHashes, withInstall } from '../../src/internal.js';
 import { makeInstall } from '../helpers/store-contract.js';
 
 describe('withInstall', () => {

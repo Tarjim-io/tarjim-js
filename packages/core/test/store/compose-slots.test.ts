@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { composeSlots } from '../../src/index.js';
+import { composeSlots } from '../../src/internal.js';
 import { makeInstall } from '../helpers/store-contract.js';
 
 describe('composeSlots', () => {

@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { createDeliveryClient } from '../src/index.js';
-import type { DeliveryClientOptions, Meta, SliceFile } from '../src/index.js';
+import { createDeliveryClient } from '../src/internal.js';
+import type { DeliveryClientOptions, Meta, SliceFile } from '../src/internal.js';
 import * as fake from '../../../test/helpers/fake-delivery.js';
 
 export const { API_KEY, DELIVERY_URL, SIGNED_QUERY, ROTATED_SIGNED_QUERY } = fake as unknown as Record<

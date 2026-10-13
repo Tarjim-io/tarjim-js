@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { decodeSlice } from '../../src/index.js';
-import type { Snapshot } from '../../src/index.js';
+import { decodeSlice } from '../../src/internal.js';
+import type { Snapshot } from '../../src/internal.js';
 import { DEFAULT, flatSlice, leaf, pluralKeys, snapshotOf, world } from './world.js';
 
 // Mulberry32: the same garbage on every run.

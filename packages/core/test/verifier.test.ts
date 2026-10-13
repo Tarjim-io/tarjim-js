@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { sha256Hex, verify } from '../src/index.js';
+import { sha256Hex, verify } from '../src/internal.js';
 import { FIXTURES } from './support.js';
 
 const EMPTY_HASH = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';

@@ -2,7 +2,7 @@ import { decodeStoredManifest } from './manifest.js';
 import type { Manifest } from './types.js';
 import { sha256Hex } from './verifier.js';
 
-export const BUSY: unique symbol = Symbol('tarjim.busy');
+export const BUSY: unique symbol = Symbol.for('tarjim.busy');
 
 export interface Install {
   checksum: string;

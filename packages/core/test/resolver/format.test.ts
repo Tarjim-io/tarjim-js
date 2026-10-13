@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { format } from '../../src/index.js';
+import { format } from '../../src/internal.js';
 import { leaf, pluralKeys, snapshotWith } from './world.js';
 
 describe('named placeholders', () => {

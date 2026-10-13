@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { createSnapshot, decodeManifest, matchLocale, selectLocale, slotName } from '../../src/index.js';
-import type { Snapshot } from '../../src/index.js';
+import { createSnapshot, decodeManifest, matchLocale, selectLocale, slotName } from '../../src/internal.js';
+import type { Snapshot } from '../../src/internal.js';
 import { FIXTURES } from '../support.js';
 import { DEFAULT } from './world.js';
 import { makeInstall } from '../helpers/store-contract.js';

@@ -1,15 +1,6 @@
-import {
-  BUSY,
-  installHashes,
-  mergeState,
-  referencedHashes,
-  runWithProcessLock,
-  sanitiseInstall,
-  sanitiseState,
-  sha256Hex,
-  withInstall,
-} from '@tarjim/core';
-import type { Install, State, Store } from '@tarjim/core';
+import { BUSY, installHashes, mergeState, referencedHashes, runWithProcessLock, sanitiseInstall, sanitiseState, sha256Hex, withInstall } from '@tarjim/core/internal';
+import type { Store } from '@tarjim/core';
+import type { Install, State } from '@tarjim/core/internal';
 
 export const DATABASE_NAME = 'tarjim-delivery-v1';
 

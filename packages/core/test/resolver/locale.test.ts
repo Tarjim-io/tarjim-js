@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { matchLocale, selectLocale } from '../../src/index.js';
+import { matchLocale, selectLocale } from '../../src/internal.js';
 
 describe('matching a wanted locale against the available ones', () => {
   it('ignores case and answers with the available spelling', () => {

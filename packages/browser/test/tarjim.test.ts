@@ -1,6 +1,6 @@
 import { IDBFactory } from 'fake-indexeddb';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { storeId } from '@tarjim/core';
+import { storeId } from '@tarjim/core/internal';
 import type { Tarjim as Instance, TarjimReport } from '@tarjim/core';
 import { Tarjim, browserPlatform } from '../src/index.js';
 import { makeRelease, makeServer } from '../../core/test/helpers/cycle-world.js';

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { MemoryStore, fetchHeldLocale, runCycle, slotName } from '../../src/index.js';
+import { MemoryStore, fetchHeldLocale, runCycle, slotName } from '../../src/internal.js';
 import { hashOf, installed, makeRelease, makeWorld } from '../helpers/cycle-world.js';
 import type { World } from '../helpers/cycle-world.js';
 import { fixtureResponse, problem, respond, sha256Hex } from '../support.js';

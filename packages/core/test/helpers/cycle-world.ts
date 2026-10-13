@@ -1,5 +1,6 @@
-import { MemoryStore, runCycle } from '../../src/index.js';
-import type { CycleContext, CycleReason, Store } from '../../src/index.js';
+import { MemoryStore, runCycle } from '../../src/internal.js';
+import type { Store } from '../../src/index.js';
+import type { CycleContext, CycleReason } from '../../src/internal.js';
 import { DELIVERY_URL, clientFor, queryOf, simpleRelease } from '../support.js';
 import type { Release, ReleaseOptions } from '../support.js';
 

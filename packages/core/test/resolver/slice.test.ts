@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { decodeSlice } from '../../src/index.js';
+import { decodeSlice } from '../../src/internal.js';
 import { flatSlice, leaf } from './world.js';
 
 const decoded = (value: unknown) => {

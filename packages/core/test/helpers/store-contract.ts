@@ -1,7 +1,8 @@
 import { createHash } from 'node:crypto';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { BUSY } from '../../src/index.js';
-import type { Install, Store } from '../../src/index.js';
+import { BUSY } from '../../src/internal.js';
+import type { Store } from '../../src/index.js';
+import type { Install } from '../../src/internal.js';
 
 export const DELIVERY_URL = 'https://delivery.example.invalid/t/1/projects/1/delivery/meta';
 export const API_KEY = 'tarjim-0-0-0-testkey';

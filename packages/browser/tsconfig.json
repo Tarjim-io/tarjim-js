@@ -22,6 +22,9 @@
     "paths": {
       "@tarjim/core": [
         "../core/src/index.ts"
+      ],
+      "@tarjim/core/internal": [
+        "../core/src/internal.ts"
       ]
     }
   },

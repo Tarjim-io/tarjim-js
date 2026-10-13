@@ -1,9 +1,9 @@
 import { IDBFactory } from 'fake-indexeddb';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { MemoryStore, storeId } from '@tarjim/core';
+import { MemoryStore, storeId } from '@tarjim/core/internal';
 import { DATABASE_NAME, openStore } from '../src/index.js';
 import { API_KEY, DELIVERY_URL, FakeLocks, openRaw, request } from './helpers/idb-world.js';
-import { BUSY } from '@tarjim/core';
+import { BUSY } from '@tarjim/core/internal';
 import { makeInstall, slice, until } from '../../core/test/helpers/store-contract.js';
 
 const options = { deliveryUrl: DELIVERY_URL, apiKey: API_KEY };

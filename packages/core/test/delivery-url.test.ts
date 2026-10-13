@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { deliveryUrlProblem } from '../src/index.js';
+import { deliveryUrlProblem } from '../src/internal.js';
 
 describe('deliveryUrlProblem', () => {
   it.each([

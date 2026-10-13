@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { slotName } from '../../src/index.js';
+import { slotName } from '../../src/internal.js';
 import { hashOf } from '../helpers/cycle-world.js';
 import { respond } from '../support.js';
 import { makeWorld, settle, stillPending, until, within } from './world.js';

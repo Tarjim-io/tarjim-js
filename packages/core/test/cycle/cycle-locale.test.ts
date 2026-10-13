@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { fetchHeldLocale, runCycle, slotName } from '../../src/index.js';
+import { fetchHeldLocale, runCycle, slotName } from '../../src/internal.js';
 import { hashOf, installed, makeRelease, makeWorld } from '../helpers/cycle-world.js';
 import { ROTATED_SIGNED_QUERY, SIGNED_QUERY, fixtureResponse, respond } from '../support.js';
 

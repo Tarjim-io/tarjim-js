@@ -1,5 +1,7 @@
-import { MemoryStore, createRuntime, storeId } from '../../src/index.js';
-import type { Install, Platform, Slice, State, Store, Tarjim, TarjimConfig, TarjimReport } from '../../src/index.js';
+import { createRuntime } from '../../src/index.js';
+import { MemoryStore, storeId } from '../../src/internal.js';
+import type { Platform, Slice, Store, Tarjim, TarjimConfig, TarjimReport } from '../../src/index.js';
+import type { Install, State } from '../../src/internal.js';
 import { makeClock, makeRelease, makeServer } from '../helpers/cycle-world.js';
 import type { Clock, ReleaseSpec, Server } from '../helpers/cycle-world.js';
 import { API_KEY, DELIVERY_URL } from '../support.js';

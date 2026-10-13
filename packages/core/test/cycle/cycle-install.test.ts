@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { BUSY, slotName } from '../../src/index.js';
+import { BUSY, slotName } from '../../src/internal.js';
 import { hashOf, installed, makeRelease, makeWorld } from '../helpers/cycle-world.js';
 import type { World } from '../helpers/cycle-world.js';
 import { ROTATED_SIGNED_QUERY, respond } from '../support.js';
