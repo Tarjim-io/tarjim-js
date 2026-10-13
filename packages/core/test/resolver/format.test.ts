@@ -100,6 +100,47 @@ describe('the plural rule', () => {
   });
 });
 
+describe('arguments that cannot be turned into text', () => {
+  const noPrototype = Object.create(null);
+  const throwing = {
+    toString() {
+      throw new Error('no text');
+    },
+  };
+
+  it('leaves the placeholder as authored for a named argument, and fills the others', () => {
+    expect(format('a {x} b {y}', { x: noPrototype, y: 'ok' })).toBe('a {x} b ok');
+    expect(format('{x}', { x: throwing })).toBe('{x}');
+  });
+
+  it('leaves the placeholder as authored for a printf argument, and still counts its position', () => {
+    expect(format('a %s b %s', [throwing, 'ok'])).toBe('a %s b ok');
+    expect(format('%2$s %1$d %1$s', [noPrototype, 'ok'])).toBe('ok %1$d %1$s');
+  });
+
+  it('does the same inside a plural value and for a legacy placeholder', () => {
+    expect(format('%d items', { count: throwing }, { plural: true, count: throwing as never })).toBe('%d items');
+    expect(format('%%x%% and {x}', { x: throwing }, { legacyPercentPlaceholders: true })).toBe('%%x%% and {x}');
+  });
+
+  it('gives back the formatted value from a lookup, with that placeholder as authored', () => {
+    const snapshot = snapshotWith({ k: leaf(1, 'Hi {name}, {other}') });
+    expect(snapshot.t('k', { name: throwing, other: 'there' })).toBe('Hi {name}, there');
+  });
+});
+
+describe('arguments that fail on any access', () => {
+  const trap = (message: string) => () => {
+    throw new Error(message);
+  };
+  const hostile = new Proxy({}, { get: trap('get'), has: trap('has'), ownKeys: trap('ownKeys'), getOwnPropertyDescriptor: trap('descriptor') });
+
+  it('never throws and gives back the text as authored', () => {
+    expect(format('Hi {name} %s', hostile as never)).toBe('Hi {name} %s');
+    expect(format(undefined as never, { name: 'x' })).toBe('');
+  });
+});
+
 describe('hostile text', () => {
   it('scans a very long run of braces and percent signs in linear time', () => {
     const started = Date.now();

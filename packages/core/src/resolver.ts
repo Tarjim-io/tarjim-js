@@ -75,6 +75,14 @@ const hasOwn = (object: object, name: string): boolean => Object.prototype.hasOw
  *   %%name%%         object arguments, only with legacyPercentPlaceholders
  */
 export function format(text: string, args: FormatArgs, options: FormatOptions = {}): string {
+  try {
+    return formatText(text, args, options);
+  } catch {
+    return typeof text === 'string' ? text : '';
+  }
+}
+
+function formatText(text: string, args: FormatArgs, options: FormatOptions): string {
   const named = isRecord(args) ? args : null;
   let positional = Array.isArray(args) ? (args as readonly unknown[]) : null;
   // Inside a plural value the count stands in for every printf argument.
@@ -85,34 +93,51 @@ export function format(text: string, args: FormatArgs, options: FormatOptions = 
   let out = '';
   let next = 0;
   let i = 0;
+  // Plain text is copied in runs, from `copied` up to the next placeholder.
+  let copied = 0;
   while (i < text.length) {
-    const char = text.charAt(i);
     let match: RegExpExecArray | null;
-    if (char === '{' && named && (match = matchAt(NAMED_PLACEHOLDER, text, i)) && hasOwn(named, match[1]!)) {
-      out += String(named[match[1]!]);
-      i += match[0].length;
-    } else if (char !== '%') {
-      out += char;
+    let length = 0;
+    let replacement: string | undefined;
+    const char = text.charAt(i);
+    if (char === '{') {
+      if (named && (match = matchAt(NAMED_PLACEHOLDER, text, i)) && hasOwn(named, match[1]!)) {
+        length = match[0].length;
+        replacement = stringify(named[match[1]!]);
+      }
+    } else if (char === '%') {
+      if (options.legacyPercentPlaceholders && named && (match = matchAt(LEGACY_PLACEHOLDER, text, i)) && hasOwn(named, match[1]!)) {
+        length = match[0].length;
+        replacement = stringify(named[match[1]!]);
+      } else if (positional && (match = matchAt(PRINTF_PLACEHOLDER, text, i))) {
+        const index = match[1] ? Number(match[1]) - 1 : countOnly ? 0 : next++;
+        length = match[0].length;
+        if (index >= 0 && index < positional.length) replacement = stringify(positional[index]);
+      } else if (positional && text.charAt(i + 1) === '%') {
+        length = 2;
+        replacement = '%';
+      }
+    }
+    if (length === 0) {
       i += 1;
-    } else if (options.legacyPercentPlaceholders && named && (match = matchAt(LEGACY_PLACEHOLDER, text, i)) && hasOwn(named, match[1]!)) {
-      out += String(named[match[1]!]);
-      i += match[0].length;
-    } else if (!positional) {
-      out += '%';
-      i += 1;
-    } else if ((match = matchAt(PRINTF_PLACEHOLDER, text, i))) {
-      const index = match[1] ? Number(match[1]) - 1 : countOnly ? 0 : next++;
-      out += index >= 0 && index < positional.length ? String(positional[index]) : match[0];
-      i += match[0].length;
-    } else if (text.charAt(i + 1) === '%') {
-      out += '%';
-      i += 2;
+    } else if (replacement === undefined) {
+      i += length;
     } else {
-      out += '%';
-      i += 1;
+      out += text.slice(copied, i) + replacement;
+      i += length;
+      copied = i;
     }
   }
-  return out;
+  return out + text.slice(copied);
+}
+
+// An argument whose own conversion throws leaves its placeholder as authored.
+function stringify(value: unknown): string | undefined {
+  try {
+    return String(value);
+  } catch {
+    return undefined;
+  }
 }
 
 // Bundle ids compare by their number ("ns7" before "ns10"), then as text.
