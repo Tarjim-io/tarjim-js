@@ -194,7 +194,9 @@ export function createDeliveryClient(options: DeliveryClientOptions): DeliveryCl
 
   async function fetchSlice(meta: Meta, file: SliceFile): Promise<{ outcome: SliceOutcome; stale: boolean }> {
     try {
-      const request = HEX64.test(file.hash) ? objectRequest(meta, typeof meta.slicesBaseUrl === 'string' ? `${meta.slicesBaseUrl}${file.hash}.json` : undefined) : null;
+      // Without the slash the hash would run into the last path segment (or the host).
+      const base = meta.slicesBaseUrl;
+      const request = HEX64.test(file.hash) && typeof base === 'string' && base.endsWith('/') ? objectRequest(meta, `${base}${file.hash}.json`) : null;
       if (!request) return { outcome: { kind: 'refused' }, stale: false };
       const answer = await get(request.url, request.extra, (s) => s === 200);
       if (answer.status !== 200) {

@@ -153,6 +153,11 @@ describe('references the CDN path refuses', () => {
     await refusedAndNeverRequested({ slicesBaseUrl: reference }, 'slices');
   });
 
+  it('refuses a slices base without a trailing slash, rather than running the hash into the path', async () => {
+    await refusedAndNeverRequested({ slicesBaseUrl: 'https://cdn.example.invalid/releases/1/1/t1/slices' }, 'slices');
+    await refusedAndNeverRequested({ slicesBaseUrl: 'https://cdn.example.invalid' }, 'slices');
+  });
+
   it.each([
     ['a space', 'Policy=a b'],
     ['a fragment marker', 'Policy=a#b'],
@@ -247,6 +252,20 @@ describe('objects over the origin path', () => {
     const before = release.requests.length;
 
     const { results } = await client.fetchSlices({ ...release.meta, slicesBaseUrl }, files);
+    expect([...results.values()]).toEqual(files.map(() => ({ kind: 'refused' })));
+    expect(release.requests).toHaveLength(before);
+  });
+});
+
+describe('a slices base over the origin path', () => {
+  it('is requested with a trailing slash and refused without one, sending nothing', async () => {
+    const release = simpleRelease({ mode: 'origin' });
+    const client = clientFor(release.fetch);
+    const files = jsonFiles(release);
+    expect([...(await client.fetchSlices(release.meta, files)).results.values()].every((r) => r.kind === 'verified')).toBe(true);
+    const before = release.requests.length;
+
+    const { results } = await client.fetchSlices({ ...release.meta, slicesBaseUrl: 'releases/7/slices' }, files);
     expect([...results.values()]).toEqual(files.map(() => ({ kind: 'refused' })));
     expect(release.requests).toHaveLength(before);
   });
