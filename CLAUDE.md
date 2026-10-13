@@ -8,10 +8,11 @@ self-hosted by the site that uses it. MIT licensed. Versions stay `0.x` until th
 ## Commands
 
 - Install: `pnpm install` (pnpm 10, Node 20.19+ or 22.12+)
-- Test: `pnpm test`
+- Test: `pnpm build` first (the script-tag tests read the built file), then `pnpm test`
 - Record fixtures from a live server: `scripts/capture-fixtures.sh --help`
 - Fill a fixtures-only project with invented keys: `scripts/seed-fixture-project.sh --help`
 - Scan for keys and signatures (CI runs it): `scripts/secret-scan.sh`
+- Script-tag build: `pnpm build` writes `packages/browser/dist/tarjim-browser.iife.js`. Whenever it changes, regenerate the `integrity` in `examples/plain-html/with-package.html` with `node scripts/sri.mjs <file>` (`test/script-tag.test.js` fails when it is stale).
 - Release: push a tag `reference-v<x.y.z>` matching `VERSION` in the file. `.github/workflows/release.yml`
   publishes it as a pre-release with its sha256, only from a commit on `main`. Making a release
   customer-facing is a separate, deliberate step: rewrite its notes without the pre-release warning

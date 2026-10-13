@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <!-- No inline script: the configuration lives in tarjim-package-config.js on your own origin.
+         The policy below allows your delivery host and the CDN host your release is served from; the
+         *.cloudfront.net entry is temporary and will be replaced by a Tarjim host. -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; connect-src https://delivery.example.com https://*.cloudfront.net"
+    />
+    <title>Tarjim browser package</title>
+  </head>
+  <body>
+    <h1 data-key="app.title">app.title</h1>
+    <button id="switch-language" type="button">Switch language</button>
+
+    <!-- integrity must match the file next to this page: regenerate it with
+         node scripts/sri.mjs packages/browser/dist/tarjim-browser.iife.js whenever the file changes. -->
+    <script
+      src="tarjim-browser.iife.js"
+      integrity="sha384-ALG6BEtxLsyGq5msWIMkD+0v/WCJmGqSoeEKB35HuKxu/Z3lyYkzLQYhdJtisWID"
+      crossorigin="anonymous"
+    ></script>
+    <script src="tarjim-package-config.js"></script>
+  </body>
+</html>
