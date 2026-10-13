@@ -1,3 +1,4 @@
+import './jsdom-compat.js';
 import { Component, Profiler, useMemo } from 'react';
 import type { ReactNode } from 'react';
 import { act, cleanup, render, screen } from '@testing-library/react';
@@ -159,7 +160,7 @@ export function commitRecorder() {
         id="frame"
         onRender={() => {
           // The commit has been applied to the DOM by the time the profiler reports it.
-          commits.push([...document.querySelectorAll('[data-id]')].map((node) => node.textContent ?? ''));
+          commits.push(Array.from(document.querySelectorAll('[data-id]')).map((node) => node.textContent ?? ''));
         }}
       >
         {children}
