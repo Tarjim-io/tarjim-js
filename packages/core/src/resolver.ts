@@ -273,7 +273,6 @@ export function createSnapshot(input: SnapshotInput): Snapshot {
         if (leaf === undefined) continue;
         const answer = read(leaf, source.slice.byId.get(name) ?? new Map());
         if (answer !== undefined) return answer;
-        break;
       }
     }
     return undefined;

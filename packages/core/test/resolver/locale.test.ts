@@ -141,6 +141,14 @@ describe('selecting the locale for a visitor', () => {
     });
   });
 
+  it('goes on to saved, browser and fallback when a manifest is held and the explicit language matches nothing', () => {
+    const held = { manifestHeld: true, universe } as const;
+    expect(selectLocale({ explicit: 'de', saved: 'ar', browser: ['fr'], fallback: 'en', ...held })).toEqual({ locale: 'ar', source: 'saved' });
+    expect(selectLocale({ explicit: 'de', saved: 'ja', browser: ['fr'], fallback: 'en', ...held })).toEqual({ locale: 'fr', source: 'browser' });
+    expect(selectLocale({ explicit: 'de', browser: ['ja'], fallback: 'en', ...held })).toEqual({ locale: 'en', source: 'fallback' });
+    expect(selectLocale({ explicit: 'fr', browser: ['ar'], fallback: 'en', ...held })).toEqual({ locale: 'fr', source: 'explicit' });
+  });
+
   it('selects a locale that only the embedded slices have, instead of the fallback', () => {
     expect(selectLocale({ browser: ['ar-EG'], fallback: 'en', universe: ['en', 'ar'] })).toEqual({
       locale: 'ar',

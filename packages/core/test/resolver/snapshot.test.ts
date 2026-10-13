@@ -37,6 +37,21 @@ describe('plain lookups', () => {
     expect(snapshot.t('empty', { name: 'x' })).toBe('empty');
   });
 
+  it('matches the key exactly in both directions of case', () => {
+    const snapshot = snapshotWith({
+      lower: leaf(1, 'lower'),
+      'Mixed.Key': leaf(2, 'mixed'),
+      ...arrayKeys('menu', 10, ['A']),
+    });
+    expect(snapshot.t('LOWER')).toBe('LOWER');
+    expect(snapshot.t('lower')).toBe('lower');
+    expect(snapshot.t('mixed.key')).toBe('mixed.key');
+    expect(snapshot.t('Mixed.Key')).toBe('mixed');
+    expect(snapshot.entry('LOWER')).toBeNull();
+    expect(snapshot.tArray('MENU')).toEqual([]);
+    expect(snapshot.tArray('menu')).toEqual(['A']);
+  });
+
   it('treats prototype property names as ordinary key names', () => {
     const raw = '{"schemaVersion":1,"bundle":"ns1","locale":"en","keys":{"constructor":{"id":"21","value":"ctor"}}}';
     const snapshot = snapshotOf(world({ ns1: DEFAULT }, { ns1: { en: raw } }));
@@ -179,6 +194,31 @@ describe('which bundle answers', () => {
       },
     );
     expect(snapshotOf(w).t('k')).toBe('k');
+  });
+
+  it('goes on to a later namespace of the same source when an earlier one holds the key with an empty value', () => {
+    const w = world(
+      { c1: { ...CUSTOM_UI, layout: 'nested', namespaces: ['a', 'b'] } },
+      {
+        c1: {
+          en: {
+            schemaVersion: 1,
+            bundle: 'c1',
+            locale: 'en',
+            namespaces: {
+              a: { k: leaf(1, ''), list: leaf(5, '', { string_array_child_keys: [] }) },
+              b: { k: leaf(2, 'from b'), list: leaf(3, '', { string_array_child_keys: [4] }), 'list.0': leaf(4, 'item') },
+            },
+          },
+        },
+      },
+    );
+    const snapshot = snapshotOf(w);
+    const ui = { bundle: CUSTOM_UI };
+    expect(snapshot.t('k', undefined, ui)).toBe('from b');
+    expect(snapshot.entry('k', ui)?.value).toBe('from b');
+    expect(snapshot.tArray('list', ui)).toEqual(['item']);
+    expect(snapshot.t('k', undefined, { ...ui, namespace: 'a' })).toBe('k');
   });
 
   it('searches nested namespaces in the manifest order, not the slice key order', () => {
@@ -482,6 +522,20 @@ describe('plural parents and children', () => {
     const snapshot = snapshotWith(keys);
     expect(snapshot.t('a', { count: 5 })).toBe('parent 5');
     expect(snapshot.t('b', { count: 5 })).toBe('b');
+  });
+
+  it('uses the other form for a well-formed tag that has no plural data', () => {
+    const keys = pluralKeys('cart', 10, { one: 'ONE', few: 'FEW', other: 'MANY' });
+    const snapshot = snapshotWith(keys, { locales: ['qaa'] });
+    for (const count of [0, 1, 2, 3, 11]) expect(snapshot.t('cart', { count })).toBe('MANY');
+  });
+
+  it('never uses a listed child that is named after another parent as a form', () => {
+    const keys = {
+      ...pluralKeys('cart', 10, { one: 'cart one', other: 'cart other' }),
+      items: leaf(20, 'ITEMS PARENT', { plural_child_keys: [11] }),
+    };
+    expect(snapshotWith(keys).t('items', { count: 1 })).toBe('ITEMS PARENT');
   });
 
   it('falls to the other child when the form has no child', () => {
