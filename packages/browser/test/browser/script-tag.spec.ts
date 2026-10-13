@@ -33,7 +33,12 @@ async function serve(page: Page, script: Buffer) {
     if (!/^[\w.-]+$/.test(name) || !existsSync(file)) return route.fulfill({ status: 404, body: '' });
     let body = readFileSync(file, 'utf8');
     // The recording names its object host under .invalid; the example's policy lists the real one.
-    if (name === 'with-package.html') body = body.replace('connect-src ', 'connect-src https://cdn.example.invalid ');
+    if (name === 'with-package.html') {
+      const policy = /(<meta\b[^>]*http-equiv="Content-Security-Policy"[^>]*content="[^"]*?)connect-src /;
+      expect(body).toMatch(policy);
+      body = body.replace(policy, '$1connect-src https://cdn.example.invalid ');
+      expect(body).toContain('cdn.example.invalid');
+    }
     return route.fulfill({ status: 200, contentType: TYPES[extname(name)] ?? 'text/plain', body });
   });
 

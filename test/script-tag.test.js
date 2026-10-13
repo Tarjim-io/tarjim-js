@@ -105,7 +105,12 @@ describe('examples/plain-html with the package', () => {
     const files = readdirSync(path('examples/plain-html'));
     expect(files.length).toBeGreaterThan(3);
     for (const file of files.filter((name) => /\.(html|js)$/.test(name))) {
-      const text = read(`examples/plain-html/${file}`);
+      // A comment may name innerHTML to warn against it; only code counts.
+      const text = read(`examples/plain-html/${file}`)
+        .replace(/<!--[\s\S]*?-->/g, '')
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+        .replace(/^\s*\/\/.*$/gm, '')
+        .replace(/\s\/\/ .*$/gm, '');
       expect(text, file).not.toMatch(/innerHTML|outerHTML|insertAdjacentHTML|document\.write\(/);
     }
   });
