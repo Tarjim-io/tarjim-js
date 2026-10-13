@@ -55,7 +55,13 @@ function stubPage(options: { languages?: string[]; userAgentData?: { platform: s
 }
 
 const running: Instance[] = [];
-beforeEach(() => stubPage());
+// A key per test gives each test its own store, so a check still running from an earlier test cannot hold its lock.
+let apiKey = API_KEY;
+let tests = 0;
+beforeEach(() => {
+  apiKey = `${API_KEY}-${++tests}`;
+  stubPage();
+});
 afterEach(() => {
   for (const runtime of running.splice(0)) runtime.stop();
   vi.unstubAllGlobals();
@@ -66,7 +72,7 @@ afterEach(() => {
 async function start(config: Record<string, unknown>): Promise<Instance> {
   const runtime = await Tarjim.start({
     deliveryUrl: DELIVERY_URL,
-    apiKey: API_KEY,
+    apiKey,
     appVersion: '1.4.0',
     defaultBundle: { type: 'namespace', name: 'b1' },
     fallbackLanguage: 'en',

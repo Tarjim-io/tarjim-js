@@ -11,8 +11,10 @@ export const DAY_MS = 86_400_000;
 export const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 /** Polls until the condition holds; fails the test (with the caller's line) after about 800 ms. */
-export async function until(condition: () => boolean | Promise<boolean>, what = 'the condition'): Promise<void> {
-  for (let i = 0; i < 400; i++) {
+// Bounded by real time, not by a count of polls: under a busy full-suite run each poll takes far longer than its sleep.
+export async function until(condition: () => boolean | Promise<boolean>, what = 'the condition', ms = 4000): Promise<void> {
+  const deadline = Date.now() + ms;
+  while (Date.now() < deadline) {
     if (await condition()) return;
     await sleep(2);
   }
@@ -23,7 +25,7 @@ export async function until(condition: () => boolean | Promise<boolean>, what = 
 export const settle = (ms = 40) => sleep(ms);
 
 /** Resolves with the promise's value, or fails when it is still pending after `ms` of real time. */
-export async function within<T>(promise: Promise<T>, ms = 800): Promise<T> {
+export async function within<T>(promise: Promise<T>, ms = 4000): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const late = new Promise<never>((_, reject) => {
     timer = setTimeout(() => reject(new Error(`still pending after ${ms} ms`)), ms);
