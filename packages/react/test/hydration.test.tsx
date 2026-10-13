@@ -1,13 +1,14 @@
 // @vitest-environment jsdom
 import { hydrateRoot } from 'react-dom/client';
 import { renderToString } from 'react-dom/server';
+import { StrictMode } from 'react';
 import type { ReactNode } from 'react';
-import { cleanup } from '@testing-library/react';
+import { cleanup, render } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { TarjimConfig } from '@tarjim/core';
 import { TarjimProvider, useTarjim } from '../src/index.js';
 import type { TarjimContextValue } from '../src/index.js';
-import { act, rig, settle, useCleanSlate } from './helpers/rig.js';
+import { act, embedded, rig, settle, useCleanSlate } from './helpers/rig.js';
 
 vi.mock('node:url', () => import('./helpers/node-url-mock.js'));
 
@@ -192,6 +193,59 @@ describe('a provider mounted on server-rendered HTML', () => {
     expect(error).toHaveBeenCalled();
     expect(container.textContent).toBe('a');
     expect(start).not.toHaveBeenCalled();
+  });
+
+  it('reports a bad embedded once through onReport, however often the effect runs', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const onReport = vi.fn();
+    const { config, start } = setup({ embedded: { en: {} }, onReport });
+    const p = probe();
+
+    await act(async () => {
+      render(
+        <StrictMode>
+          <TarjimProvider hydrating config={config} start={start}>
+            <p.Probe />
+          </TarjimProvider>
+        </StrictMode>,
+      );
+    });
+    await settle(50);
+
+    expect(onReport).toHaveBeenCalledTimes(1);
+    expect(onReport.mock.calls[0]?.[0]).toMatchObject({ code: 'embedded-invalid' });
+  });
+
+  it('does not report anything when embedded is an array', async () => {
+    const onReport = vi.fn();
+    const { config, start } = setup({ onReport });
+    const p = probe();
+
+    await hydrate(() => (
+      <TarjimProvider hydrating config={config} start={start}>
+        <p.Probe />
+      </TarjimProvider>
+    ));
+
+    expect(onReport).not.toHaveBeenCalled();
+  });
+
+  it('skips entries that are not slices instead of throwing, and uses the rest', async () => {
+    const { config, start } = setup({ embedded: [null, 7, 'text', [], { locale: 3 }, { schemaVersion: 1 }, embedded('en'), embedded('fr')] });
+    const p = probe();
+
+    const { container, recoverable } = await hydrate(() => (
+      <TarjimProvider hydrating config={config} start={start}>
+        <p.Probe />
+      </TarjimProvider>
+    ));
+    expect(container.textContent).toBe('embedded a');
+    expect(recoverable).not.toHaveBeenCalled();
+
+    await act(async () => {
+      await p.api().setLanguage('fr');
+    });
+    expect(container.textContent).toBe('embedded a fr');
   });
 
   it('ignores waitForContent, warning once in the browser however often it renders', async () => {

@@ -64,7 +64,8 @@ function direction(language: string): 'rtl' | 'ltr' {
 function embeddedOnly(config: TarjimConfig): Source {
   const slices = Array.isArray(config.embedded) ? config.embedded : [];
   if (!Array.isArray(config.embedded) && dev()) console.error('[tarjim] hydrating needs `embedded` to be an array of slices; rendering the keys.');
-  const locales = slices.map((slice) => slice.locale);
+  // As in the SDK: an entry that is not a record with a string locale takes no part in choosing the language.
+  const locales = slices.flatMap((slice) => (typeof slice?.locale === 'string' ? [slice.locale] : []));
   const listeners = new Set<() => void>();
   let version = 0;
   const open = (locale: string) =>
@@ -138,6 +139,7 @@ export function TarjimProvider({
       language: config.language,
       activateImmediately,
       noted: new Set<string>(),
+      reported: false,
       gone: false,
       runtime: undefined as Runtime | undefined,
       started: local && (Promise.resolve(local) as Promise<Source>),
@@ -168,6 +170,14 @@ export function TarjimProvider({
   useEffect(() => {
     if (own.hydrating) {
       if (own.config.waitForContent !== undefined) note('wait', 'waitForContent is ignored while hydrating: the page shows its embedded text.');
+      if (own.config.embedded !== undefined && !Array.isArray(own.config.embedded) && !own.reported) {
+        own.reported = true;
+        try {
+          own.config.onReport?.({ code: 'embedded-invalid', message: 'embedded must be an array of slices; ignored.' });
+        } catch {
+          // A callback that throws must not take the page down.
+        }
+      }
       return;
     }
     own.gone = false;
