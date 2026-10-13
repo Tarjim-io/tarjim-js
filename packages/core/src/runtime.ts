@@ -11,7 +11,7 @@ import type { BundleRef, FormatArgs, LookupOptions, Snapshot, TarjimEntry } from
 import { createScheduler } from './scheduler.js';
 import type { Scheduler, Timers, Visibility } from './scheduler.js';
 import type { Slice } from './slice.js';
-import { parseSlot, slotName } from './store.js';
+import { BUSY, parseSlot, slotName } from './store.js';
 import type { Install, State, Store } from './store.js';
 import type { FetchFunction } from './types.js';
 import { SDK_VERSION } from './version.js';
@@ -145,7 +145,9 @@ const safe = (fn: () => void): void => {
 };
 
 /** Never rejects for a condition it can degrade from, unless `strict` is set. */
-export async function createRuntime(config: TarjimConfig, platform: Platform): Promise<Tarjim> {
+export async function createRuntime(given: TarjimConfig, platform: Platform): Promise<Tarjim> {
+  const valid = isRecord(given);
+  const config = (valid ? given : {}) as TarjimConfig;
   const { deliveryUrl, apiKey, defaultBundle, fallbackLanguage } = config;
   const now = (): number => platform.now();
   const bundleOk =
@@ -186,25 +188,40 @@ export async function createRuntime(config: TarjimConfig, platform: Platform): P
   }
   const store = opened;
 
+  let inflight: Promise<unknown> | undefined;
+  // Another holder of the lock is usually this runtime's own check; failing that, the lock is polled for about a second.
+  async function whenFree<T>(attempt: () => Promise<T>, busy: (result: T) => boolean): Promise<T> {
+    let result = await attempt();
+    for (let tries = 0; tries < 40 && busy(result); tries++) {
+      await (inflight ?? new Promise((resolve) => setTimeout(resolve, 25)));
+      result = await attempt();
+    }
+    return result;
+  }
+
   const reportedToday: Record<string, number> = {};
   async function report(code: string, details?: Details, message: string = MESSAGES[code] ?? code): Promise<void> {
+    const identity = [code, ...Object.values(details ?? {})].join(':');
+    const today = Math.floor(now() / DAY_MS);
+    if (reportedToday[identity] === today) return;
+    // Claimed before any await so reports arriving together are delivered once; given back if the log fails.
+    reportedToday[identity] = today;
     try {
-      const identity = [code, ...Object.values(details ?? {})].join(':');
-      const today = Math.floor(now() / DAY_MS);
-      let fresh = reportedToday[identity] !== today;
-      reportedToday[identity] = today;
-      if (fresh && store) {
-        await store.updateState((state) => {
-          fresh = state.reported?.[identity] !== today;
-          const kept = Object.entries(state.reported ?? {}).filter(([, day]) => day === today);
-          return fresh ? { ...state, reported: { ...Object.fromEntries(kept), [identity]: today } } : state;
-        });
-      }
-      if (!fresh) return;
+      if (store && (await store.readState()).reported?.[identity] === today) return;
       platform.log(config.debug ? 'info' : 'debug', message, details);
-      config.onReport?.({ code, message, ...(details ? { details } : {}) });
     } catch {
-      // A failing log or callback must not reach the lookup that triggered the report.
+      delete reportedToday[identity];
+      return;
+    }
+    // From here on the report counts as delivered, whatever the callback does.
+    safe(() => config.onReport?.({ code, message, ...(details ? { details } : {}) }));
+    try {
+      await store?.updateState((state) => {
+        const kept = Object.entries(state.reported ?? {}).filter(([, day]) => day === today);
+        return { ...state, reported: { ...Object.fromEntries(kept), [identity]: today } };
+      });
+    } catch {
+      // Storage trouble is its own report; this one stays remembered for the page load.
     }
   }
 
@@ -212,7 +229,7 @@ export async function createRuntime(config: TarjimConfig, platform: Platform): P
   const embedded = (Array.isArray(config.embedded) ? config.embedded : []).filter(isRecord) as Slice[];
   if (config.embedded !== undefined && !Array.isArray(config.embedded)) await report('embedded-invalid');
   const appVersion = normaliseAppVersion(config.appVersion);
-  if (appVersion !== config.appVersion) await report('app-version-normalised', { from: String(config.appVersion).slice(0, 32), to: appVersion });
+  if (valid && appVersion !== config.appVersion) await report('app-version-normalised', { from: String(config.appVersion).slice(0, 32), to: appVersion });
 
   let state: State = {};
   let previous: Install | undefined;
@@ -226,7 +243,8 @@ export async function createRuntime(config: TarjimConfig, platform: Platform): P
       });
     }
     const pending = state.pending;
-    if (pending && (await store.withLock(() => store.writeInstall(pending, 'active'))) === true) {
+    const wrote = pending && (await whenFree(() => store.withLock(() => store.writeInstall(pending, 'active')), (result) => result === BUSY));
+    if (wrote === true) {
       previous = state.active;
       state = await store.readState();
     }
@@ -294,6 +312,7 @@ export async function createRuntime(config: TarjimConfig, platform: Platform): P
   }
 
   const handlers = new Set<(event: TarjimEvent) => void>();
+  const ends = new Set<() => void>();
   const subscribers = new Set<() => void>();
   const emit = (type: TarjimEventType): void => {
     for (const handler of [...handlers]) safe(() => handler({ type }));
@@ -369,23 +388,36 @@ export async function createRuntime(config: TarjimConfig, platform: Platform): P
         activeInstall = active;
         if (swap(await load(active, current.snapshot.language)) && outcome === 'activated') emit('activated');
       }
-      if (outcome === 'downloaded' && install) {
+      if (install && install !== active) {
         await prepare(install);
-        emit('downloaded');
+        if (outcome === 'downloaded') emit('downloaded');
       }
     }
-    if (analytics && !installId && store && store.durable !== false && outcome !== 'busy' && outcome !== 'notDue') {
+    const answered = outcome === 'failed' ? result.conditions.some(({ code }) => code === 'configuration') : ['noChange', 'downloaded', 'activated'].includes(outcome);
+    if (analytics && !installId && store && store.durable !== false && answered) {
       installId = (await store.updateState((s) => (s.installId ? s : { ...s, installId: platform.randomId() }))).installId;
     }
   }
 
-  async function run(reason: CycleReason): Promise<CheckResult> {
+  // A runtime that lost the lock to another runtime on the same store shows what that one installed.
+  async function adopt(): Promise<void> {
+    const held = activeInstall || !live ? undefined : (await store?.readState())?.active;
+    if (!held) return;
+    activeInstall = held;
+    if (swap(await load(held, current.snapshot.language))) emit('activated');
+    firstDone();
+  }
+
+  async function check(reason: CycleReason): Promise<CheckResult> {
     const cycle = live;
     if (!cycle) return 'failed';
     try {
       const result = await runCycle(cycle, reason);
       await apply(result);
       if (result.outcome !== 'failed' && result.outcome !== 'busy') firstDone();
+      if (result.outcome === 'busy' && store && !activeInstall) {
+        void whenFree(() => store.withLock(async () => undefined), (free) => free === BUSY).then(adopt, () => undefined);
+      } else await adopt();
       return RESULT[result.outcome];
     } catch {
       return 'failed';
@@ -393,6 +425,15 @@ export async function createRuntime(config: TarjimConfig, platform: Platform): P
       jitter = platform.random();
       await markOwed();
     }
+  }
+
+  function run(reason: CycleReason): Promise<CheckResult> {
+    const running = check(reason);
+    inflight = running;
+    void running.then(() => {
+      if (inflight === running) inflight = undefined;
+    });
+    return running;
   }
 
   if (live && store && timers) {
@@ -447,10 +488,10 @@ export async function createRuntime(config: TarjimConfig, platform: Platform): P
       try {
         const cycle = live;
         if (cycle && store) {
-          const result = await fetchHeldLocale(cycle);
+          const result = await whenFree(() => fetchHeldLocale(cycle), ({ outcome }) => outcome === 'busy');
           await reportAll(result);
           state = await store.readState();
-          if (result.outcome === 'failed' || lacks(state.pending ?? state.active, match)) throw new Error('The text for that language could not be downloaded.');
+          if (result.outcome === 'failed' || lacks(state.active, match)) throw new Error('The text for that language could not be downloaded.');
           activeInstall = state.active;
         }
         const next = await load(activeInstall, match);
@@ -471,7 +512,7 @@ export async function createRuntime(config: TarjimConfig, platform: Platform): P
       if (!next || !store) return false;
       prepared = undefined;
       activeInstall = next.install;
-      void store.withLock(() => store.writeInstall(next.install, 'active')).catch(() => undefined);
+      void whenFree(() => store.withLock(() => store.writeInstall(next.install, 'active')), (result) => result === BUSY).catch(() => undefined);
       if (swap(next.served)) emit('activated');
       return true;
     },
@@ -497,22 +538,31 @@ export async function createRuntime(config: TarjimConfig, platform: Platform): P
 
     updates() {
       const queue: TarjimEvent[] = [];
-      let wake = (): void => undefined;
+      let sleepers: Array<() => void> = [];
+      let closed = false;
+      const wake = (): void => sleepers.splice(0).forEach((resume) => resume());
       const feed = (event: TarjimEvent): void => {
         queue.push(event);
         wake();
       };
+      const close = (): void => {
+        closed = true;
+        handlers.delete(feed);
+        ends.delete(close);
+        wake();
+      };
       handlers.add(feed);
+      ends.add(close);
       return {
         [Symbol.asyncIterator]() {
           return this;
         },
         async next() {
-          while (!queue.length) await new Promise<void>((resolve) => (wake = resolve));
-          return { done: false, value: queue.shift()! };
+          while (!queue.length && !closed) await new Promise<void>((resume) => sleepers.push(resume));
+          return queue.length ? { done: false, value: queue.shift()! } : { done: true, value: undefined };
         },
         async return() {
-          handlers.delete(feed);
+          close();
           return { done: true, value: undefined };
         },
       };
@@ -523,6 +573,11 @@ export async function createRuntime(config: TarjimConfig, platform: Platform): P
       return () => void subscribers.delete(listener);
     },
     getVersion: () => version,
-    stop: () => scheduler?.stop(),
+    stop() {
+      scheduler?.stop();
+      for (const end of [...ends]) end();
+      handlers.clear();
+      subscribers.clear();
+    },
   };
 }

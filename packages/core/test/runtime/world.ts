@@ -3,6 +3,7 @@ import type { Install, Platform, Slice, State, Store, Tarjim, TarjimConfig, Tarj
 import { makeClock, makeRelease, makeServer } from '../helpers/cycle-world.js';
 import type { Clock, ReleaseSpec, Server } from '../helpers/cycle-world.js';
 import { API_KEY, DELIVERY_URL } from '../support.js';
+import type { Release } from '../support.js';
 
 export { API_KEY, DELIVERY_URL };
 
@@ -164,6 +165,7 @@ export function makeWorld(options: WorldOptions = {}) {
   const logs: Logged[] = [];
   const reports: TarjimReport[] = [];
   const fetched: string[] = [];
+  const past: Release[] = [];
   const opened: Array<[string, string]> = [];
   let ids = 0;
 
@@ -181,7 +183,14 @@ export function makeWorld(options: WorldOptions = {}) {
     secureContext: options.secureContext ?? true,
     fetch: async (input, init) => {
       fetched.push(input);
-      return server.fetch(input, init);
+      const answer = await server.fetch(input, init);
+      if (answer.ok || !input.includes('/slices/')) return answer;
+      // A CDN keeps the files of earlier releases.
+      for (const old of past) {
+        const earlier = await old.fetch(input, init);
+        if (earlier.ok) return earlier;
+      }
+      return answer;
     },
     async openStore(deliveryUrl, apiKey) {
       opened.push([deliveryUrl, apiKey]);
@@ -243,6 +252,7 @@ export function makeWorld(options: WorldOptions = {}) {
     storeIdValue: () => storeId(DELIVERY_URL, API_KEY),
     /** Makes the next check go to a different release. */
     release(spec: ReleaseSpec) {
+      past.push(server.current);
       server.use(makeRelease(spec));
     },
   };

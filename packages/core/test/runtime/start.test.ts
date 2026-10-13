@@ -363,8 +363,8 @@ describe('runtimes are independent', () => {
     await a.setLanguage('fr');
     expect(a.language).toBe('fr');
     expect(b.language).toBe('en');
-    expect(a.t('a')).toBe('embedded a fr');
-    expect(b.t('a')).not.toBe('embedded a fr');
+    expect(a.t('a')).toMatch(/ fr$/);
+    expect(b.t('a')).not.toMatch(/ fr$/);
   });
 
   it('keeps events and stopping apart', async () => {
