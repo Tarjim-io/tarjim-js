@@ -582,7 +582,8 @@
       return null;
     }
     // A key that is bound to no track cannot receive a release, so nothing else is requested.
-    if (body.track === null && session.config.allowUnboundKey !== true) {
+    // Anything but a string counts as unbound, a missing field included.
+    if (typeof body.track !== 'string') {
       session.report('unbound-key', 'The API key is not bound to a track');
       return null;
     }
