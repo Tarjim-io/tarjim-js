@@ -1,7 +1,7 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { normaliseAppVersion } from '../src/index.js';
+import { normaliseAppVersion } from '../src/internal.js';
 import { clientFor, jsonFiles, simpleRelease } from './support.js';
 
 const SRC = fileURLToPath(new URL('../src/', import.meta.url));

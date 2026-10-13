@@ -1,5 +1,6 @@
-import { createSnapshot } from '../../src/index.js';
-import type { BundleRef, Install, Slice, Snapshot, SnapshotInput, SnapshotReport } from '../../src/index.js';
+import { createSnapshot } from '../../src/internal.js';
+import type { BundleRef, Slice } from '../../src/index.js';
+import type { Install, Snapshot, SnapshotInput, SnapshotReport } from '../../src/internal.js';
 import { makeInstall } from '../helpers/store-contract.js';
 
 export const DEFAULT: BundleRef = { type: 'namespace', name: 'default' };

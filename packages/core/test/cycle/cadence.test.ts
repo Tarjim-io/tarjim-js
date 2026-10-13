@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { backoffSeconds, clampPollAfter, clampRetryAfter, dueAt } from '../../src/index.js';
-import type { State } from '../../src/index.js';
+import { backoffSeconds, clampPollAfter, clampRetryAfter, dueAt } from '../../src/internal.js';
+import type { State } from '../../src/internal.js';
 
 const NOW = 1_700_000_000_000;
 const seconds = (n: number) => n * 1000;

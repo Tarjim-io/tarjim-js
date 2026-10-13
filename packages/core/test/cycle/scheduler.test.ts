@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createScheduler } from '../../src/index.js';
-import type { Scheduler, Visibility } from '../../src/index.js';
+import { createScheduler } from '../../src/internal.js';
+import type { Visibility } from '../../src/index.js';
+import type { Scheduler } from '../../src/internal.js';
 
 const DAY_MS = 86_400_000;
 

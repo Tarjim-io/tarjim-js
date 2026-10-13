@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { MetaIdentity } from '../src/index.js';
+import type { MetaIdentity } from '../src/internal.js';
 import { API_VERSION, SDK_VERSION } from '../src/index.js';
 import {
   API_KEY,

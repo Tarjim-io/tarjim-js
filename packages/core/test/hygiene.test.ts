@@ -14,7 +14,7 @@ import {
   serialise,
   simpleRelease,
 } from './support.js';
-import type { MetaOutcome } from '../src/index.js';
+import type { MetaOutcome } from '../src/internal.js';
 
 const CONSOLE_METHODS = ['log', 'info', 'warn', 'error', 'debug', 'trace', 'dir'] as const;
 

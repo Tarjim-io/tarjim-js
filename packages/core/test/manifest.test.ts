@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { decodeManifest } from '../src/index.js';
+import { decodeManifest } from '../src/internal.js';
 import { FIXTURES, simpleRelease } from './support.js';
 
 const HASH = 'a'.repeat(64);

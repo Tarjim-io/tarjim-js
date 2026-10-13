@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { Meta } from '../src/index.js';
+import type { Meta } from '../src/internal.js';
 import {
   API_KEY,
   DELIVERY_URL,

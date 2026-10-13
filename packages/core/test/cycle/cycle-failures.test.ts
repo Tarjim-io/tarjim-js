@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { MemoryStore, fetchHeldLocale, runCycle, slotName } from '../../src/index.js';
+import { MemoryStore, fetchHeldLocale, runCycle, slotName } from '../../src/internal.js';
 import { hashOf, installed, makeRelease, makeWorld } from '../helpers/cycle-world.js';
 import type { World } from '../helpers/cycle-world.js';
 import { fixtureResponse, problem, respond, sha256Hex } from '../support.js';
@@ -263,7 +263,7 @@ describe('a key bound to nothing', () => {
 
     const result = await w.run();
     expect(result.outcome).toBe('unbound');
-    expect(result.conditions).toContainEqual({ code: 'unbound' });
+    expect(result.conditions).toContainEqual({ code: 'unbound-key' });
     expect(w.server.log.map((request) => request.kind)).toEqual(['meta']);
     expect((await w.state()).lastCheck).toBe(w.clock.now());
   });
@@ -440,7 +440,7 @@ describe('a manifest that cannot be decoded', () => {
 
     const result = await w.run();
     expect(result.outcome).toBe('failed');
-    expect(result.conditions).toContainEqual({ code: 'manifestUnreadable' });
+    expect(result.conditions).toContainEqual({ code: 'manifest-unreadable' });
     const state = await w.state();
     expect(state.rejectedChecksums ?? []).toEqual([]);
     expect(state.backoffStep).toBe(1);

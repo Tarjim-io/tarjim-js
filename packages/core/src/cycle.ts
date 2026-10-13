@@ -16,13 +16,13 @@ export type CycleOutcome =
 
 /** Something the page owner may need to hear about; the caller decides whether and how often to report it. */
 export type CycleCondition =
-  | { code: 'unbound' }
+  | { code: 'unbound-key' }
   | { code: 'configuration'; status: number; problemCode?: string }
-  | { code: 'metaSchema'; schemaVersion: unknown }
-  | { code: 'manifestSchema'; schemaVersion: unknown }
-  | { code: 'manifestIntegrity' }
-  | { code: 'manifestUnreadable' }
-  | { code: 'sliceIntegrity' }
+  | { code: 'meta-schema'; schemaVersion: unknown }
+  | { code: 'manifest-schema'; schemaVersion: unknown }
+  | { code: 'manifest-integrity' }
+  | { code: 'manifest-unreadable' }
+  | { code: 'slice-integrity' }
   | { code: 'storage' };
 
 export interface CycleResult {
@@ -65,7 +65,7 @@ function fileOf(manifest: Manifest, slot: string): SliceFile | undefined {
   return parsed && lookup(manifest, parsed.bundle, parsed.locale);
 }
 
-function wantedSlots(manifest: Manifest, locale: string): Map<string, SliceFile> {
+export function wantedSlots(manifest: Manifest, locale: string): Map<string, SliceFile> {
   const wanted = new Map<string, SliceFile>();
   for (const bundle of Object.keys(manifest.slices)) {
     const file = lookup(manifest, bundle, locale);
@@ -201,18 +201,26 @@ function build(
   };
 }
 
-async function commit(context: CycleContext, install: Install, role: Role): Promise<boolean> {
-  if (!(await context.store.writeInstall(install, role))) return false;
+async function write(context: CycleContext, install: Install, role: Role): Promise<boolean> {
+  return context.store.writeInstall(install, role);
+}
+
+async function tidy(context: CycleContext): Promise<void> {
   try {
     await context.store.cleanup();
   } catch {
     // Leftover slices are removed by the next install.
   }
+}
+
+async function commit(context: CycleContext, install: Install, role: Role): Promise<boolean> {
+  if (!(await write(context, install, role))) return false;
+  await tidy(context);
   return true;
 }
 
 const installedOutcome = (role: Role): CycleOutcome => (role === 'active' ? 'activated' : 'downloaded');
-const integrityConditions = (got: Acquired): CycleCondition[] => (got.integrity ? [{ code: 'sliceIntegrity' }] : []);
+const integrityConditions = (got: Acquired): CycleCondition[] => (got.integrity ? [{ code: 'slice-integrity' }] : []);
 const activeOf = (install: Install, role: Role): { active?: Install } => (role === 'active' ? { active: install } : {});
 
 async function writeFailed(context: CycleContext): Promise<CycleResult> {
@@ -220,41 +228,59 @@ async function writeFailed(context: CycleContext): Promise<CycleResult> {
   return storageFailure();
 }
 
+// Extends both the install that is showing and the one waiting, so the language shows at once and survives the switch to the waiting one.
 async function heldLocale(context: CycleContext): Promise<CycleResult> {
   const { store } = context;
   const state = await store.readState();
-  const base = state.pending ?? state.active;
+  const top = state.pending ?? state.active;
   const locale = context.locale();
-  if (!base || locale === undefined) return none();
-  const mark = `${base.checksum}\n${locale}`;
+  if (!top || locale === undefined) return none();
+  const mark = `${top.checksum}\n${locale}`;
   if (state.localeFetched === mark) return none();
 
-  const wanted = new Map<string, SliceFile>();
-  for (const [slot, file] of wantedSlots(base.manifest, locale)) {
-    // An owed slot belongs to the retry that a fresh meta triggers, which brings a fresh signature.
-    if (base.slots[slot] === undefined && !base.owed.includes(slot)) wanted.set(slot, file);
+  const plans: Array<{ role: Role; base: Install; wanted: Map<string, SliceFile> }> = [];
+  for (const [role, base] of [['active', state.active], ['pending', state.pending]] as Array<[Role, Install | undefined]>) {
+    const wanted = new Map<string, SliceFile>();
+    for (const [slot, file] of base ? wantedSlots(base.manifest, locale) : []) {
+      // An owed slot belongs to the retry that a fresh meta triggers, which brings a fresh signature.
+      if (base!.slots[slot] === undefined && !base!.owed.includes(slot)) wanted.set(slot, file);
+    }
+    if (base && wanted.size) plans.push({ role, base, wanted });
   }
-  if (!wanted.size) return none();
+  if (!plans.length) return none();
   if (notBeforeOf(state, context.now()) > context.now()) return { outcome: 'notDue', conditions: [] };
 
-  const got = await acquire(context, wanted, metaOf(base), identityOf(context, state));
-  if (got.storage) return storageFailure();
-  const role: Role = state.pending ? 'pending' : 'active';
-  let install: Install | undefined;
-  // Slots that could not be fetched are written as owed, so the install records the attempt.
-  if (got.verified.size || !got.transient) {
-    const names = [...new Set([...Object.keys(base.slots), ...base.owed, ...wanted.keys()])];
-    install = build(context, base, previousOf(state, base), names, got);
-    if (!(await commit(context, install, role))) return writeFailed(context);
+  const made: Partial<Record<Role, { install: Install; fresh: boolean }>> = {};
+  const conditions: CycleCondition[] = [];
+  let transient = false;
+  let retryAfter: number | undefined;
+  for (const { role, base, wanted } of plans) {
+    const got = await acquire(context, wanted, metaOf(base), identityOf(context, state));
+    if (got.storage) return storageFailure();
+    conditions.push(...integrityConditions(got));
+    transient ||= got.transient;
+    if (got.retryAfter !== undefined) retryAfter = Math.max(retryAfter ?? 0, got.retryAfter);
+    // Slots that could not be fetched are written as owed, so the install records the attempt.
+    if (got.verified.size || !got.transient) {
+      const names = [...new Set([...Object.keys(base.slots), ...base.owed, ...wanted.keys()])];
+      made[role] = { install: build(context, base, previousOf(state, base), names, got), fresh: got.verified.size > 0 };
+    }
   }
+
+  const { active, pending } = made;
+  // Writing an active install drops the pending one, so that is written back after it.
+  if (active && !(await write(context, active.install, 'active'))) return writeFailed(context);
+  const waiting = pending?.install ?? (active ? state.pending : undefined);
+  if (waiting && !(await write(context, waiting, 'pending'))) return writeFailed(context);
+  if (active || pending) await tidy(context);
   // A transient failure leaves the mark unset so a later cycle tries again, after the backoff.
-  if (got.transient) await backOff(context, got.retryAfter);
+  if (transient) await backOff(context, retryAfter);
   else await store.updateState((current) => ({ ...current, localeFetched: mark }));
 
-  const conditions = integrityConditions(got);
-  const extra = install ? activeOf(install, role) : {};
-  if (install && got.verified.size) return { outcome: installedOutcome(role), install, conditions, ...extra };
-  return { outcome: got.transient ? 'failed' : 'noChange', conditions, ...extra };
+  const extra = active ? { active: active.install } : {};
+  const fresh = [pending, active].find((entry) => entry?.fresh);
+  if (fresh) return { outcome: active?.fresh ? 'activated' : 'downloaded', install: fresh.install, conditions, ...extra };
+  return { outcome: transient ? 'failed' : 'noChange', conditions, ...extra };
 }
 
 async function retryOwed(
@@ -303,7 +329,7 @@ async function poll(context: CycleContext, state: State): Promise<CycleResult> {
   switch (answer.kind) {
     case 'unbound':
       await settle(context, clampPollAfter(state.lastPollAfter));
-      return { outcome: 'unbound', conditions: [{ code: 'unbound' }] };
+      return { outcome: 'unbound', conditions: [{ code: 'unbound-key' }] };
     case 'unreleased':
       await settle(context, clampPollAfter(answer.pollAfter, MIN_POLL_SECONDS));
       return none();
@@ -333,7 +359,7 @@ async function poll(context: CycleContext, state: State): Promise<CycleResult> {
 
   if (meta.schemaVersion !== KNOWN_SCHEMA) {
     await settle(context, pollAfter);
-    return { outcome: 'noChange', conditions: [{ code: 'metaSchema', schemaVersion: meta.schemaVersion }] };
+    return { outcome: 'noChange', conditions: [{ code: 'meta-schema', schemaVersion: meta.schemaVersion }] };
   }
   if (state.rejectedChecksums?.includes(meta.checksum)) {
     await settle(context, pollAfter);
@@ -362,16 +388,16 @@ async function poll(context: CycleContext, state: State): Promise<CycleResult> {
   if (fetched.kind !== 'verified') {
     if (fetched.kind === 'checksumMismatch') {
       await settle(context, pollAfter, reject);
-      return { outcome: 'failed', conditions: [{ code: 'manifestIntegrity' }] };
+      return { outcome: 'failed', conditions: [{ code: 'manifest-integrity' }] };
     }
     await backOff(context, 'retryAfter' in fetched ? fetched.retryAfter : undefined);
     // Not rejected: an oversized proxy page and a bad release look the same from here, and the next meta may differ.
-    return { outcome: 'failed', conditions: fetched.kind === 'unreadable' ? [{ code: 'manifestUnreadable' }] : [] };
+    return { outcome: 'failed', conditions: fetched.kind === 'unreadable' ? [{ code: 'manifest-unreadable' }] : [] };
   }
   const { manifest } = fetched;
   if (manifest.schemaVersion !== KNOWN_SCHEMA) {
     await settle(context, pollAfter, reject);
-    return { outcome: 'failed', conditions: [{ code: 'manifestSchema', schemaVersion: manifest.schemaVersion }] };
+    return { outcome: 'failed', conditions: [{ code: 'manifest-schema', schemaVersion: manifest.schemaVersion }] };
   }
 
   const wanted = wantedSlots(manifest, locale);

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { runCycle } from '@tarjim/core';
+import { runCycle } from '@tarjim/core/internal';
 import type { Store } from '@tarjim/core';
 import { hashOf, makeContext, makeRelease, makeWorld } from '../../core/test/helpers/cycle-world.js';
 import { createIdbWorld } from './helpers/idb-world.js';

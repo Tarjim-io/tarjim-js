@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { createSnapshot } from '../../src/index.js';
-import type { Snapshot, SnapshotReport } from '../../src/index.js';
+import { createSnapshot } from '../../src/internal.js';
+import type { Snapshot, SnapshotReport } from '../../src/internal.js';
 import { DEFAULT, arrayKeys, flatSlice, leaf, oneBundle, pluralKeys, reporter, snapshotOf, snapshotWith, world } from './world.js';
 
 const CUSTOM_UI = { type: 'custom', name: 'ui' } as const;

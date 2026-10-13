@@ -1,0 +1,570 @@
+import { dueAt } from './cadence.js';
+import { fetchHeldLocale, runCycle, wantedSlots } from './cycle.js';
+import type { CycleContext, CycleReason, CycleResult } from './cycle.js';
+import { createDeliveryClient } from './delivery-client.js';
+import { deliveryUrlProblem } from './delivery-url.js';
+import { normaliseAppVersion } from './app-version.js';
+import { isRecord } from './json.js';
+import { matchLocale, selectLocale } from './locale.js';
+import { createSnapshot } from './resolver.js';
+import type { BundleRef, FormatArgs, LookupOptions, Snapshot, TarjimEntry } from './resolver.js';
+import { createScheduler } from './scheduler.js';
+import type { Scheduler, Timers, Visibility } from './scheduler.js';
+import type { Slice } from './slice.js';
+import { BUSY, parseSlot } from './store.js';
+import type { Install, State, Store } from './store.js';
+import type { FetchFunction } from './types.js';
+import { SDK_VERSION } from './version.js';
+
+export interface TarjimConfig {
+  deliveryUrl: string;
+  apiKey: string;
+  appVersion: string;
+  defaultBundle: BundleRef;
+  fallbackLanguage: string;
+  language?: string;
+  /** Save a language chosen with setLanguage even when `language` was passed. */
+  persistLanguage?: boolean;
+  embedded?: Slice[];
+  /** Milliseconds start() may wait for the first downloaded release. */
+  waitForContent?: number;
+  /** Throw on a bad configuration instead of serving only the embedded text. */
+  strict?: boolean;
+  analytics?: { installId?: boolean };
+  legacyPercentPlaceholders?: boolean;
+  onReport?: (report: TarjimReport) => void;
+  /** Log reports at info level instead of debug. */
+  debug?: boolean;
+  fetch?: FetchFunction;
+}
+
+export interface TarjimReport {
+  code: string;
+  message: string;
+  details?: Record<string, string | number>;
+}
+
+export type TarjimEventType = 'downloaded' | 'activated' | 'languageChanged';
+export interface TarjimEvent {
+  type: TarjimEventType;
+}
+
+export type CheckResult = 'noChange' | 'downloaded' | 'notDue' | 'failed';
+
+export interface Tarjim {
+  readonly language: string;
+  /** True once the local text (held or embedded) is ready to read. */
+  readonly ready: boolean;
+  t(key: string, args?: FormatArgs, options?: LookupOptions): string;
+  tArray(key: string, options?: LookupOptions): string[];
+  entry(key: string, options?: LookupOptions): TarjimEntry | null;
+  setLanguage(language: string): Promise<void>;
+  checkNow(): Promise<CheckResult>;
+  activatePendingUpdate(): boolean;
+  setInstallId(enabled: boolean): Promise<void>;
+  /** Calls the listener on every event; returns a function that removes it. */
+  on(type: TarjimEventType, listener: (event: TarjimEvent) => void): () => void;
+  updates(): AsyncIterableIterator<TarjimEvent>;
+  /** For useSyncExternalStore: the listener runs whenever the text a lookup returns may have changed. */
+  subscribe(listener: () => void): () => void;
+  /** Changes identity whenever subscribe's listeners are called. */
+  getVersion(): number;
+  stop(): void;
+}
+
+export class TarjimConfigError extends Error {}
+export class TarjimLanguageError extends Error {}
+
+/** What the runtime needs from its environment; @tarjim/browser supplies the browser's. */
+export interface Platform {
+  name: string;
+  fetch?: FetchFunction;
+  secureContext: boolean;
+  openStore(deliveryUrl: string, apiKey: string): Promise<{ store: Store; degradedReason?: string }>;
+  browserLanguages(): readonly string[];
+  osVersion?(): string | undefined;
+  /** Absent in Node: no scheduler runs and only checkNow() checks. */
+  timers?: Timers;
+  visibility?: Visibility;
+  now(): number;
+  random(): number;
+  randomId(): string;
+  log(level: 'debug' | 'info', message: string, details?: Record<string, string | number>): void;
+}
+
+type Details = Record<string, string | number>;
+
+interface Served {
+  snapshot: Snapshot;
+  /** Names the locale and the files behind it, so an unchanged text is not announced as a change. */
+  sig: string;
+  /** Slots whose file could not be read back. */
+  missing: string[];
+}
+
+const DAY_MS = 86_400_000;
+const NO_BUNDLE: BundleRef = { type: 'namespace', name: '' };
+// Server codes look like `delivery.forbidden`; anything else from a server is not copied into a report.
+const CODE = /^[\w.-]{1,64}$/;
+
+const MESSAGES: Record<string, string> = {
+  'insecure-context': 'Insecure context: only the embedded text is served.',
+  'storage-unavailable': 'Storage unavailable: only the embedded text is served.',
+  'embedded-invalid': 'embedded must be an array of slices; ignored.',
+  'app-version-normalised': 'appVersion was reduced to major.minor.patch.',
+  'unbound-key': 'The key is bound to no release: only the embedded text is served.',
+  configuration: 'The delivery server refused the request; check the URL and key.',
+  'meta-schema': 'The delivery server uses a newer format; the held text is kept.',
+  'manifest-schema': 'A release uses a newer manifest format; not installed.',
+  'manifest-integrity': 'A manifest failed its checksum and was rejected.',
+  'manifest-unreadable': 'A manifest could not be read.',
+  'slice-integrity': 'A slice failed its hash and was not used.',
+  'slice-schema': 'A slice uses a newer format; not used.',
+  storage: 'Writing to storage failed.',
+  'attribute-dropped': 'Attributes outside the allowed list were dropped.',
+  'media-url-rejected': 'A media URL that is not https was rejected.',
+};
+
+const safe = (fn: () => void): void => {
+  try {
+    fn();
+  } catch {
+    // A listener's own error is not the runtime's.
+  }
+};
+
+/** Never rejects for a condition it can degrade from, unless `strict` is set. */
+export async function createRuntime(given: TarjimConfig, platform: Platform): Promise<Tarjim> {
+  const valid = isRecord(given);
+  const config = (valid ? given : {}) as TarjimConfig;
+  const { deliveryUrl, apiKey, defaultBundle, fallbackLanguage } = config;
+  const now = (): number => platform.now();
+  const bundleOk =
+    isRecord(defaultBundle) && (defaultBundle.type === 'namespace' || defaultBundle.type === 'custom') && typeof defaultBundle.name === 'string';
+  const problem =
+    deliveryUrlProblem(deliveryUrl) ??
+    (apiKey && typeof apiKey === 'string' ? null : 'apiKey is required') ??
+    (bundleOk ? null : 'defaultBundle needs a type and a name') ??
+    (fallbackLanguage && typeof fallbackLanguage === 'string' ? null : 'fallbackLanguage is required');
+  if (problem !== null && config.strict) throw new TarjimConfigError(problem);
+
+  // Armed before the first await: the wait is measured from the call to start, not from when storage opens.
+  const { timers, visibility } = platform;
+  const wait = Number(config.waitForContent);
+  let firstDone = (): void => undefined;
+  const timeout =
+    timers && wait > 0
+      ? new Promise<void>((resolve) => {
+          const handle = timers.set(resolve, wait);
+          firstDone = () => {
+            timers.clear(handle);
+            resolve();
+          };
+        })
+      : undefined;
+
+  let offline = problem !== null ? 'invalid-configuration' : platform.secureContext ? undefined : 'insecure-context';
+  let opened: Store | undefined;
+  if (offline === undefined) {
+    try {
+      const attempt = await platform.openStore(deliveryUrl, apiKey);
+      if (attempt.degradedReason === undefined && !attempt.store.degraded) opened = attempt.store;
+      else attempt.store.close();
+    } catch {
+      // Treated like storage that cannot be used.
+    }
+    if (opened === undefined) offline = 'storage-unavailable';
+  }
+  const store = opened;
+
+  let inflight: Promise<unknown> | undefined;
+  // Another holder of the lock is usually this runtime's own check; failing that, the lock is polled for about a second.
+  async function whenFree<T>(attempt: () => Promise<T>, busy: (result: T) => boolean): Promise<T> {
+    let result = await attempt();
+    for (let tries = 0; tries < 40 && busy(result); tries++) {
+      await (inflight ?? new Promise((resolve) => setTimeout(resolve, 25)));
+      result = await attempt();
+    }
+    return result;
+  }
+
+  const reportedToday: Record<string, number> = {};
+  async function report(code: string, details?: Details, message: string = MESSAGES[code] ?? code): Promise<void> {
+    const identity = [code, ...Object.values(details ?? {})].join(':');
+    const today = Math.floor(now() / DAY_MS);
+    if (reportedToday[identity] === today) return;
+    // Claimed before any await so reports arriving together are delivered once; given back if the log fails.
+    reportedToday[identity] = today;
+    try {
+      if (store && (await store.readState()).reported?.[identity] === today) return;
+      platform.log(config.debug ? 'info' : 'debug', message, details);
+    } catch {
+      delete reportedToday[identity];
+      return;
+    }
+    // From here on the report counts as delivered, whatever the callback does.
+    safe(() => config.onReport?.({ code, message, ...(details ? { details } : {}) }));
+    try {
+      await store?.updateState((state) => {
+        const kept = Object.entries(state.reported ?? {}).filter(([, day]) => day === today);
+        return { ...state, reported: { ...Object.fromEntries(kept), [identity]: today } };
+      });
+    } catch {
+      // Storage trouble is its own report; this one stays remembered for the page load.
+    }
+  }
+
+  if (offline !== undefined) await report(offline, undefined, problem ?? undefined);
+  const embedded = (Array.isArray(config.embedded) ? config.embedded : []).filter(isRecord) as Slice[];
+  if (config.embedded !== undefined && !Array.isArray(config.embedded)) await report('embedded-invalid');
+  const appVersion = normaliseAppVersion(config.appVersion);
+  if (valid && appVersion !== config.appVersion) await report('app-version-normalised', { from: String(config.appVersion).slice(0, 32), to: appVersion });
+
+  let state: State = {};
+  let previous: Install | undefined;
+  if (store) {
+    state = await store.readState();
+    if (state.sdkVersion !== SDK_VERSION) {
+      state = await store.updateState((current) => {
+        const next = { ...current, sdkVersion: SDK_VERSION };
+        delete next.rejectedChecksums;
+        return next;
+      });
+    }
+    const pending = state.pending;
+    const wrote = pending && (await whenFree(() => store.withLock(() => store.writeInstall(pending, 'active')), (result) => result === BUSY));
+    if (wrote === true) {
+      previous = state.active;
+      state = await store.readState();
+    }
+  }
+
+  let activeInstall = state.active;
+  const localesOf = (install: Install | undefined): string[] => [
+    ...Object.values(install?.manifest.slices ?? {}).flatMap((files) => Object.keys(files)),
+    ...embedded.map((slice) => slice.locale).filter((locale) => typeof locale === 'string'),
+  ];
+  const bundle = isRecord(defaultBundle) ? defaultBundle : NO_BUNDLE;
+
+  async function load(install: Install | undefined, locale: string, fallback?: Install): Promise<Served> {
+    const slots: Record<string, string> = {};
+    const bytes = new Map<string, Uint8Array>();
+    const missing: string[] = [];
+    if (install && store) {
+      const mine = Object.entries(install.slots).filter(([slot]) => parseSlot(slot)?.locale === locale);
+      const held = await store.readSlices(mine.flatMap(([slot, hash]) => [hash, fallback?.slots[slot] ?? hash]));
+      for (const [slot, hash] of mine) {
+        // A file that cannot be read back is served from the install it replaces, and owed.
+        const use = [hash, fallback?.slots[slot]].find((candidate) => candidate !== undefined && held.has(candidate));
+        if (use !== hash) missing.push(slot);
+        if (use !== undefined) {
+          slots[slot] = use;
+          bytes.set(use, held.get(use)!);
+        }
+      }
+    }
+    const snapshot = createSnapshot({
+      ...(install ? { install: { ...install, slots } } : {}),
+      slices: bytes,
+      embedded,
+      locale,
+      defaultBundle: bundle,
+      legacyPercentPlaceholders: config.legacyPercentPlaceholders === true,
+      report: ({ code, details }) => void report(code, details as Details | undefined),
+    });
+    return { snapshot, sig: [locale, ...Object.values(slots).sort()].join(), missing };
+  }
+
+  const explicit = typeof config.language === 'string' && config.language ? { explicit: config.language } : {};
+  const saved = state.languageOverride === undefined ? {} : { saved: state.languageOverride };
+  let target = selectLocale({
+    ...explicit,
+    ...saved,
+    browser: platform.browserLanguages(),
+    fallback: typeof fallbackLanguage === 'string' ? fallbackLanguage : '',
+    universe: localesOf(activeInstall),
+    manifestHeld: activeInstall !== undefined,
+  }).locale;
+  let current = await load(activeInstall, target, previous);
+  // Written after the first check, so a reader who sees the file owed also sees that check's backoff.
+  let toOwe = store && activeInstall ? current.missing : [];
+  async function markOwed(): Promise<void> {
+    const owed = toOwe;
+    toOwe = [];
+    const checksum = activeInstall?.checksum;
+    if (!store || !owed.length || checksum === undefined) return;
+    await store.withLock(() =>
+      store.updateState((s) =>
+        s.active?.checksum === checksum ? { ...s, active: { ...s.active, owed: [...new Set([...s.active.owed, ...owed])] } } : s,
+      ),
+    );
+  }
+
+  const handlers = new Set<(event: TarjimEvent) => void>();
+  const ends = new Set<() => void>();
+  const subscribers = new Set<() => void>();
+  const emit = (type: TarjimEventType): void => {
+    for (const handler of [...handlers]) safe(() => handler({ type }));
+  };
+  let version = 0;
+  const bind = (): Pick<Tarjim, 't' | 'tArray' | 'entry'> => ({
+    t: (key, args, options) => current.snapshot.t(key, args, options),
+    tArray: (key, options) => current.snapshot.tArray(key, options),
+    entry: (key, options) => current.snapshot.entry(key, options),
+  });
+  let lookups = bind();
+  function swap(next: Served): boolean {
+    if (next.sig === current.sig) return false;
+    current = next;
+    version += 1;
+    lookups = bind();
+    for (const subscriber of [...subscribers]) safe(subscriber);
+    return true;
+  }
+
+  let prepared: { install: Install; served: Served } | undefined;
+  async function prepare(install: Install | undefined): Promise<void> {
+    prepared = install && { install, served: await load(install, current.snapshot.language, activeInstall) };
+  }
+
+  let analytics = config.analytics?.installId !== false;
+  let installId = state.installId;
+  const osVersion = platform.osVersion?.();
+  // One value per poll, so the scheduler and the cycle agree on when the next check is due.
+  let jitter = platform.random();
+  const send = config.fetch ?? platform.fetch;
+  let live: CycleContext | undefined =
+    store && send
+      ? {
+          store,
+          client: createDeliveryClient({ deliveryUrl, apiKey, appVersion: config.appVersion, platform: platform.name, fetch: send }),
+          sdkVersion: SDK_VERSION,
+          now,
+          random: () => jitter,
+          locale: () => target,
+          identity: () => ({
+            ...(analytics && installId ? { installId } : {}),
+            ...(osVersion === undefined ? {} : { osVersion }),
+          }),
+        }
+      : undefined;
+
+  let scheduler: Scheduler | undefined;
+
+  async function reportAll(result: CycleResult): Promise<void> {
+    for (const { code, ...rest } of result.conditions) {
+      const details = Object.fromEntries(
+        Object.entries(rest).filter(([, value]) => typeof value === 'number' || (typeof value === 'string' && CODE.test(value))),
+      ) as Details;
+      await report(
+        code,
+        Object.keys(details).length ? details : undefined,
+      );
+    }
+  }
+
+  async function apply(result: CycleResult): Promise<void> {
+    const { outcome, active, install } = result;
+    await reportAll(result);
+    if (outcome === 'unbound') {
+      scheduler?.stop();
+      live = undefined;
+      prepared = undefined;
+      activeInstall = undefined;
+      swap(await load(undefined, current.snapshot.language));
+    } else {
+      if (active) {
+        activeInstall = active;
+        if (swap(await load(active, current.snapshot.language)) && outcome === 'activated') emit('activated');
+      }
+      if (install && install !== active) {
+        await prepare(install);
+        if (outcome === 'downloaded') emit('downloaded');
+      }
+    }
+    const answered = outcome === 'failed' ? result.conditions.some(({ code }) => code === 'configuration') : ['noChange', 'downloaded', 'activated'].includes(outcome);
+    if (analytics && !installId && store && store.durable !== false && answered) {
+      installId = (await store.updateState((s) => (s.installId ? s : { ...s, installId: platform.randomId() }))).installId;
+    }
+  }
+
+  // A runtime that lost the lock to another runtime on the same store shows what that one installed.
+  async function adopt(): Promise<void> {
+    const held = activeInstall || !live ? undefined : (await store?.readState())?.active;
+    if (!held) return;
+    activeInstall = held;
+    if (swap(await load(held, current.snapshot.language))) emit('activated');
+    firstDone();
+  }
+
+  async function check(reason: CycleReason): Promise<CheckResult> {
+    const cycle = live;
+    if (!cycle) return 'failed';
+    try {
+      const result = await runCycle(cycle, reason);
+      await apply(result);
+      if (result.outcome !== 'failed' && result.outcome !== 'busy') firstDone();
+      if (result.outcome === 'busy' && store && !activeInstall) {
+        void whenFree(() => store.withLock(async () => undefined), (free) => free === BUSY).then(adopt, () => undefined);
+      } else await adopt();
+      return result.outcome === 'activated' ? 'downloaded' : result.outcome === 'unbound' || result.outcome === 'failed' ? 'failed' : result.outcome === 'busy' ? 'notDue' : result.outcome;
+    } catch {
+      return 'failed';
+    } finally {
+      jitter = platform.random();
+      await markOwed();
+    }
+  }
+
+  function run(reason: CycleReason): Promise<CheckResult> {
+    const running = check(reason);
+    inflight = running;
+    void running.then(() => {
+      if (inflight === running) inflight = undefined;
+    });
+    return running;
+  }
+
+  if (live && store && timers) {
+    scheduler = createScheduler({
+      check: () => run('scheduled'),
+      nextDueAt: async () => dueAt(await store.readState(), now(), jitter),
+      now,
+      timers,
+      ...(visibility ? { visibility } : {}),
+    });
+  }
+  const waiting = scheduler !== undefined && !activeInstall;
+  if (!waiting) firstDone();
+  if (scheduler && toOwe.length) {
+    // An unreadable file is worth a check now, though a backoff still holds it off.
+    await store?.updateState((s) => {
+      const next = { ...s };
+      delete next.lastCheck;
+      return next;
+    });
+  } else await markOwed();
+  scheduler?.start();
+  if (waiting) await timeout;
+
+  const persist = config.persistLanguage ?? config.language === undefined;
+  const lacks = (install: Install, locale: string): boolean =>
+    [...wantedSlots(install.manifest, locale).keys()].some((slot) => install.slots[slot] === undefined);
+
+  return {
+    get language() {
+      return current.snapshot.language;
+    },
+    ready: true,
+    get t() {
+      return lookups.t;
+    },
+    get tArray() {
+      return lookups.tArray;
+    },
+    get entry() {
+      return lookups.entry;
+    },
+
+    async setLanguage(language) {
+      const match = typeof language === 'string' ? matchLocale(language, localesOf(activeInstall)) : null;
+      if (match === null) throw new TarjimLanguageError('There is no text for that language.');
+      if (match === current.snapshot.language) return;
+      const before = target;
+      target = match;
+      try {
+        const cycle = live;
+        if (cycle && store) {
+          const result = await whenFree(() => fetchHeldLocale(cycle), ({ outcome }) => outcome === 'busy');
+          await reportAll(result);
+          state = await store.readState();
+          if (result.outcome === 'failed' || (state.active !== undefined && lacks(state.active, match))) throw new Error('The text for that language could not be downloaded.');
+          activeInstall = state.active;
+        }
+        const next = await load(activeInstall, match);
+        if (store && persist) await store.updateState((s) => ({ ...s, languageOverride: match }));
+        swap(next);
+        await prepare(state.pending);
+        emit('languageChanged');
+      } catch (error) {
+        target = before;
+        throw error;
+      }
+    },
+
+    checkNow: () => run('checkNow'),
+
+    activatePendingUpdate() {
+      const next = prepared;
+      if (!next || !store) return false;
+      prepared = undefined;
+      activeInstall = next.install;
+      void whenFree(() => store.withLock(() => store.writeInstall(next.install, 'active')), (result) => result === BUSY).catch(() => undefined);
+      if (swap(next.served)) emit('activated');
+      return true;
+    },
+
+    async setInstallId(enabled) {
+      analytics = enabled;
+      if (enabled || !store) return;
+      installId = undefined;
+      await store.updateState((s) => {
+        const next = { ...s };
+        delete next.installId;
+        return next;
+      });
+    },
+
+    on(type, listener) {
+      const handler = (event: TarjimEvent): void => {
+        if (event.type === type) listener(event);
+      };
+      handlers.add(handler);
+      return () => void handlers.delete(handler);
+    },
+
+    updates() {
+      const queue: TarjimEvent[] = [];
+      let sleepers: Array<() => void> = [];
+      let closed = false;
+      const wake = (): void => sleepers.splice(0).forEach((resume) => resume());
+      const feed = (event: TarjimEvent): void => {
+        queue.push(event);
+        wake();
+      };
+      const close = (): void => {
+        closed = true;
+        handlers.delete(feed);
+        ends.delete(close);
+        wake();
+      };
+      handlers.add(feed);
+      ends.add(close);
+      return {
+        [Symbol.asyncIterator]() {
+          return this;
+        },
+        async next() {
+          while (!queue.length && !closed) await new Promise<void>((resume) => sleepers.push(resume));
+          return queue.length ? { done: false, value: queue.shift()! } : { done: true, value: undefined };
+        },
+        async return() {
+          close();
+          return { done: true, value: undefined };
+        },
+      };
+    },
+
+    subscribe(listener) {
+      subscribers.add(listener);
+      return () => void subscribers.delete(listener);
+    },
+    getVersion: () => version,
+    stop() {
+      scheduler?.stop();
+      for (const end of [...ends]) end();
+      handlers.clear();
+      subscribers.clear();
+    },
+  };
+}

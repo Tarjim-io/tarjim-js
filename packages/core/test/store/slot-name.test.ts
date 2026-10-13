@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseSlot, slotName } from '../../src/index.js';
+import { parseSlot, slotName } from '../../src/internal.js';
 
 describe('parseSlot', () => {
   it.each([

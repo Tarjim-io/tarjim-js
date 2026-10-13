@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { runCycle, slotName } from '../../src/index.js';
+import { runCycle, slotName } from '../../src/internal.js';
 import { hashOf, installed, makeRelease, makeWorld } from '../helpers/cycle-world.js';
 import { respond } from '../support.js';
 

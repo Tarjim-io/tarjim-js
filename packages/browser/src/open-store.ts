@@ -1,4 +1,4 @@
-import { MemoryStore, storeId } from '@tarjim/core';
+import { MemoryStore, storeId } from '@tarjim/core/internal';
 import type { Store } from '@tarjim/core';
 import { DATABASE_NAME, IndexedDbStore } from './indexeddb-store.js';
 import type { KeyRangeLike, LockManagerLike } from './indexeddb-store.js';

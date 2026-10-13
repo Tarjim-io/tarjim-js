@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { BUSY, MemoryStore } from '../../src/index.js';
+import { BUSY, MemoryStore } from '../../src/internal.js';
 import { makeInstall, slice, storeContract, until } from '../helpers/store-contract.js';
 import type { StoreWorld } from '../helpers/store-contract.js';
 

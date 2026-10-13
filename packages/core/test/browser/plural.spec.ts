@@ -3,7 +3,7 @@ import { expect, test } from '@playwright/test';
 import { build } from 'esbuild';
 import type { Page } from '@playwright/test';
 
-const ENTRY = fileURLToPath(new URL('../../src/index.ts', import.meta.url));
+const ENTRY = fileURLToPath(new URL('../../src/internal.ts', import.meta.url));
 
 // The browser's own language is English; the text being formatted is Arabic.
 test.use({ locale: 'en-US' });

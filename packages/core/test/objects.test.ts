@@ -1,7 +1,8 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it, vi } from 'vitest';
-import { API_VERSION, decodeManifest } from '../src/index.js';
-import type { Meta, SliceFile } from '../src/index.js';
+import { API_VERSION } from '../src/index.js';
+import { decodeManifest } from '../src/internal.js';
+import type { Meta, SliceFile } from '../src/internal.js';
 import {
   API_KEY,
   DELIVERY_URL,

@@ -2,10 +2,17 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { expect, test } from '@playwright/test';
+import { build } from 'esbuild';
 import type { Page, Route } from '@playwright/test';
 
 const FIXTURES = fileURLToPath(new URL('../../../../test/fixtures/recorded/release-1/', import.meta.url));
-const CORE_JS = readFileSync(fileURLToPath(new URL('../../dist/index.js', import.meta.url)), 'utf8');
+const ENTRY = fileURLToPath(new URL('../../src/internal.ts', import.meta.url));
+
+let CORE_JS = '';
+test.beforeAll(async () => {
+  const result = await build({ entryPoints: [ENTRY], bundle: true, format: 'esm', platform: 'browser', write: false });
+  CORE_JS = result.outputFiles[0]?.text ?? '';
+});
 const ENVELOPE = JSON.parse(readFileSync(`${FIXTURES}meta.cdn.json`, 'utf8')) as {
   status: number;
   headers: Record<string, string>;
