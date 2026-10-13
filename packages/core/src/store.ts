@@ -77,6 +77,7 @@ export function composeSlots(
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
+const isFiniteNumber = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value);
 const isStrings = (value: unknown): value is string[] =>
   Array.isArray(value) && value.every((item) => typeof item === 'string');
 
@@ -107,7 +108,7 @@ export function sanitiseInstall(raw: unknown): Install | undefined {
     typeof authenticated !== 'boolean' ||
     (signedQuery !== undefined && typeof signedQuery !== 'string') ||
     typeof sdkVersion !== 'string' ||
-    typeof installedAt !== 'number'
+    !isFiniteNumber(installedAt)
   ) {
     return undefined;
   }
@@ -143,7 +144,7 @@ export function sanitiseState(raw: unknown): State {
   if (pending) state.pending = pending;
   for (const field of NUMBER_FIELDS) {
     const value = raw[field];
-    if (typeof value === 'number' && Number.isFinite(value)) state[field] = value;
+    if (isFiniteNumber(value)) state[field] = value;
   }
   for (const field of STRING_FIELDS) {
     const value = raw[field];
@@ -151,7 +152,7 @@ export function sanitiseState(raw: unknown): State {
   }
   if (isStrings(raw.rejectedChecksums)) state.rejectedChecksums = [...raw.rejectedChecksums];
   const reported = raw.reported;
-  if (isRecord(reported) && Object.values(reported).every((day) => typeof day === 'number')) {
+  if (isRecord(reported) && Object.values(reported).every(isFiniteNumber)) {
     state.reported = { ...reported } as Record<string, number>;
   }
   return state;
