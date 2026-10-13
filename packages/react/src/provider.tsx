@@ -228,7 +228,7 @@ export function TarjimProvider({
     const { language } = config;
     if (!language || language === own.language) return;
     own.language = language;
-    own.setLanguage(language).catch(() => note('language', `setLanguage('${language}') failed: no text for that language.`));
+    own.setLanguage(language).catch(() => note(`language ${language}`, `could not switch to '${language}'.`));
   }, [config.language]);
 
   useEffect(() => {

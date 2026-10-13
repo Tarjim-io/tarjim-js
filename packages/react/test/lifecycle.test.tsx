@@ -96,6 +96,33 @@ describe('the configuration', () => {
   });
 });
 
+describe('a language that cannot be set', () => {
+  it('warns once for each such language, names it and does not claim the text is missing', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const r = rig();
+    const first = r.world.config({ language: 'en' });
+    const tree = (language: string) => (
+      <TarjimProvider config={{ ...first, language }} start={r.start}>
+        <Reader />
+      </TarjimProvider>
+    );
+    const view = mount(tree('en'));
+    await waitFor(() => expect(screen.getByTestId('reader').textContent).toBe('v1 b1 en|en'), { timeout: 1000 });
+
+    for (const language of ['xx', 'yy', 'xx', 'yy']) {
+      view.rerender(tree(language));
+      await settle();
+    }
+
+    const switching = warn.mock.calls.map(([message]) => String(message)).filter((message) => /switch|language/i.test(message) && !/config object/.test(message));
+    expect(switching).toHaveLength(2);
+    expect(switching[0]).toContain('xx');
+    expect(switching[1]).toContain('yy');
+    for (const message of switching) expect(message).not.toMatch(/no text/i);
+    expect(screen.getByTestId('reader').textContent).toBe('v1 b1 en|en');
+  });
+});
+
 describe('the runtime behind the provider', () => {
   it('is started once under StrictMode and keeps polling', async () => {
     const r = rig();
