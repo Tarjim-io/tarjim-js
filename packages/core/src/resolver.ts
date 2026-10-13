@@ -284,9 +284,10 @@ export function createSnapshot(input: SnapshotInput): Snapshot {
         }
         // Only a count: a dropped name comes from the server and may carry anything.
         if (dropped > 0) report({ code: 'attribute-dropped', details: { count: dropped } });
-        const type = MEDIA_TYPES.find((media) => media === leaf.type) ?? 'text';
-        // The page puts a media value into src or href, where a script or data URL would run.
-        if (type !== 'text' && !isHttpsUrl(leaf.value)) {
+        const type = leaf.type === undefined || leaf.type === 'text' ? 'text' : MEDIA_TYPES.find((media) => media === leaf.type);
+        // The page puts a media value into src or href, where a script or data URL would run. A type
+        // this client does not know is refused too, rather than served as text.
+        if (type !== 'text' && (type === undefined || !isHttpsUrl(leaf.value))) {
           report({ code: 'media-url-rejected' });
           return null;
         }

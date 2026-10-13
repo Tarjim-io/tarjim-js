@@ -198,6 +198,18 @@ describe('media values', () => {
     }
   });
 
+  it.each([
+    ['a type the client does not know', 'video', 'https://media.example.com/a.mp4'],
+    ['a type written in another case', 'IMAGE', GOOD],
+    ['an empty type', '', GOOD],
+    ['an unknown type with a script value', 'html', 'javascript:alert(1)'],
+  ])('is never served as text for %s', (_, type, value) => {
+    const { report, codes } = reporter();
+    const snapshot = snapshotWith({ a: leaf(1, value, { type }) }, { report });
+    expect(snapshot.entry('a')).toBeNull();
+    expect(codes()).toEqual(['media-url-rejected']);
+  });
+
   it('keeps the rejected value and the key out of the report', () => {
     const { report, reports } = reporter();
     const snapshot = snapshotWith({ 'private.key': leaf(1, 'javascript:alert(1)', { type: 'image' }) }, { report });
