@@ -141,6 +141,23 @@ describe('openStore', () => {
     });
   });
 
+  it('closes a connection that opens after the time cap already passed', async () => {
+    const close = vi.fn();
+    const late = fakeFactory(() => {
+      const req = new FakeOpenRequest();
+      setTimeout(() => {
+        req.result = { close, objectStoreNames: { contains: () => true } };
+        req.fire('success');
+      }, 60);
+      return req as unknown as IDBOpenDBRequest;
+    });
+    const opened = await openStore({ ...options, indexedDB: late, timeoutMs: 10 });
+    expect(opened.degradedReason).toBe('blocked');
+    expect(close).not.toHaveBeenCalled();
+    await until(() => close.mock.calls.length > 0, 'the late connection to be closed');
+    expect(close).toHaveBeenCalledTimes(1);
+  });
+
   it('opens version 1 of tarjim-delivery-v1 and nothing else', async () => {
     const factory = new IDBFactory();
     const open = vi.spyOn(factory, 'open');
