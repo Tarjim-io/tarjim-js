@@ -138,7 +138,7 @@ export function sanitiseInstall(raw: unknown): Install | undefined {
 }
 
 const NUMBER_FIELDS = ['lastCheck', 'lastPollAfter', 'backoffStep', 'notBefore', 'checkNowAt'] as const;
-const STRING_FIELDS = ['languageOverride', 'installId'] as const;
+const STRING_FIELDS = ['languageOverride', 'localeFetched', 'installId'] as const;
 
 /** Keeps every field that has the right shape and drops the rest; never throws. */
 export function sanitiseState(raw: unknown): State {
