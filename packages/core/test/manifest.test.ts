@@ -29,16 +29,16 @@ describe('decodeManifest', () => {
 
   it('keeps a bundle layout and its namespaces', () => {
     const manifest = decodeManifest(
-      manifestWith({}, { c1: { type: 'custom', name: 'checkout', layout: 'nested', namespaces: ['a', 'b'], other: 1 } }),
+      manifestWith({}, { custom1: { type: 'custom', name: 'checkout', layout: 'nested', namespaces: ['a', 'b'], other: 1 } }),
     );
 
-    expect(manifest?.bundles['c1']).toEqual({ type: 'custom', name: 'checkout', layout: 'nested', namespaces: ['a', 'b'] });
+    expect(manifest?.bundles['custom1']).toEqual({ type: 'custom', name: 'checkout', layout: 'nested', namespaces: ['a', 'b'] });
   });
 
   it('turns namespaces that are not an array into an empty list', () => {
-    const manifest = decodeManifest(manifestWith({}, { c1: { type: 'custom', name: 'x', namespaces: 'a' } }));
+    const manifest = decodeManifest(manifestWith({}, { custom1: { type: 'custom', name: 'x', namespaces: 'a' } }));
 
-    expect(manifest?.bundles['c1']?.namespaces).toEqual([]);
+    expect(manifest?.bundles['custom1']?.namespaces).toEqual([]);
   });
 
   it('drops a bundle whose type or name is not a string and keeps the others', () => {
