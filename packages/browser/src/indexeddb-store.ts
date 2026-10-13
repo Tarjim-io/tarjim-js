@@ -1,4 +1,4 @@
-import { BUSY, installHashes, runWithProcessLock, sanitiseInstall, sanitiseState, sha256Hex } from '@tarjim/core';
+import { BUSY, installHashes, mergeState, runWithProcessLock, sanitiseInstall, sanitiseState, sha256Hex } from '@tarjim/core';
 import type { Install, State, Store } from '@tarjim/core';
 
 export const DATABASE_NAME = 'tarjim-delivery-v1';
@@ -97,7 +97,7 @@ export class IndexedDbStore implements Store {
         const store = tx.objectStore('state');
         onResult(store.get(this.id), fail, (raw) => {
           const next = sanitiseState(change(sanitiseState(raw)));
-          store.put(next, this.id);
+          store.put(mergeState(raw, next), this.id);
           settle(next);
         });
       });
@@ -168,7 +168,7 @@ export class IndexedDbStore implements Store {
           onResult(state.get(this.id), fail, (raw) => {
             const next: State = { ...sanitiseState(raw), [as]: clean };
             if (as === 'active') delete next.pending;
-            state.put(next, this.id);
+            state.put(mergeState(raw, next), this.id);
             settle(true);
           });
         };

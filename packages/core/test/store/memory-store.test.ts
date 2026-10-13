@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { BUSY, MemoryStore } from '../../src/index.js';
-import { slice, storeContract, until } from '../helpers/store-contract.js';
+import { makeInstall, slice, storeContract, until } from '../helpers/store-contract.js';
 import type { StoreWorld } from '../helpers/store-contract.js';
 
 function memoryWorld(): StoreWorld {
@@ -38,5 +38,29 @@ describe('MemoryStore', () => {
     const one = slice('one');
     expect(await store.putSlice(one.hash, one.bytes)).toBe('stored');
     expect(store.degraded).toBe(false);
+  });
+});
+
+describe('MemoryStore state written by something newer', () => {
+  const seed = (store: MemoryStore, record: unknown): void => {
+    (store as unknown as { state: unknown }).state = record;
+  };
+  const raw = (store: MemoryStore): Record<string, unknown> => (store as unknown as { state: Record<string, unknown> }).state;
+
+  it('keeps an unknown field through updateState, dropping only what the change removed', async () => {
+    const store = new MemoryStore('a');
+    seed(store, { futureField: 'x', lastCheck: 1, languageOverride: 'fr' });
+    await store.updateState(({ languageOverride: _removed, ...rest }) => ({ ...rest, backoffStep: 2 }));
+    expect(raw(store)).toEqual({ futureField: 'x', lastCheck: 1, backoffStep: 2 });
+  });
+
+  it('keeps an unknown field through writeInstall, and an active write still clears pending', async () => {
+    const store = new MemoryStore('a');
+    const one = slice('one');
+    await store.putSlice(one.hash, one.bytes);
+    seed(store, { futureField: 'x', pending: makeInstall({ 'ui\nen': one.hash }, { checksum: 'b'.repeat(64) }) });
+    expect(await store.writeInstall(makeInstall({ 'ui\nen': one.hash }), 'active')).toBe(true);
+    expect(raw(store).futureField).toBe('x');
+    expect(raw(store).pending).toBeUndefined();
   });
 });

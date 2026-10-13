@@ -10,6 +10,7 @@ export {
   MemoryStore,
   composeSlots,
   installHashes,
+  mergeState,
   runWithProcessLock,
   sanitiseInstall,
   sanitiseState,

@@ -9,6 +9,7 @@ import {
   dumpRaw,
   flatten,
   putRawState,
+  readRawState,
   tamperSlice,
 } from './helpers/idb-world.js';
 
@@ -65,6 +66,36 @@ describe('IndexedDbStore', () => {
       expect(state.active).toBeUndefined();
       expect(state.pending).toBeUndefined();
       expect(state.rejectedChecksums).toBeUndefined();
+      world.dispose();
+    });
+  });
+
+  describe('fields written by a newer tab', () => {
+    it('keeps an unknown state field through updateState, dropping only what the change removed', async () => {
+      const world = createIdbWorld();
+      const store = await world.open('a');
+      await putRawState(world.factory, store.id, { futureField: 'x', lastCheck: 1, languageOverride: 'fr' });
+
+      await store.updateState(({ languageOverride: _removed, ...rest }) => ({ ...rest, backoffStep: 2 }));
+
+      expect(await readRawState(world.factory, store.id)).toEqual({ futureField: 'x', lastCheck: 1, backoffStep: 2 });
+      world.dispose();
+    });
+
+    it('keeps an unknown state field through writeInstall, and an active write still clears pending', async () => {
+      const world = createIdbWorld();
+      const store = await world.open('a');
+      const one = slice('one');
+      await store.putSlice(one.hash, one.bytes);
+      const pending = makeInstall({ 'ui\nen': one.hash }, { checksum: 'b'.repeat(64) });
+      await putRawState(world.factory, store.id, { futureField: { nested: [1] }, pending });
+
+      expect(await store.writeInstall(makeInstall({ 'ui\nen': one.hash }), 'active')).toBe(true);
+
+      const raw = (await readRawState(world.factory, store.id)) as Record<string, unknown>;
+      expect(raw.futureField).toEqual({ nested: [1] });
+      expect(raw.pending).toBeUndefined();
+      expect(raw.active).toBeDefined();
       world.dispose();
     });
   });
