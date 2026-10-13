@@ -229,12 +229,13 @@ export class MemoryStore implements Store {
   }
 
   async readSlices(hashes: string[]): Promise<Map<string, Uint8Array>> {
-    const found = new Map<string, Uint8Array>();
-    for (const hash of hashes) {
-      const bytes = this.slices.get(hash);
-      if (bytes && (await sha256Hex(bytes)) === hash) found.set(hash, bytes.slice());
-    }
-    return found;
+    const checked = await Promise.all(
+      [...new Set(hashes)].map(async (hash): Promise<[string, Uint8Array] | undefined> => {
+        const bytes = this.slices.get(hash);
+        return bytes && (await sha256Hex(bytes)) === hash ? [hash, bytes.slice()] : undefined;
+      }),
+    );
+    return new Map(checked.filter((entry) => entry !== undefined));
   }
 
   async writeInstall(install: Install, as: 'active' | 'pending'): Promise<boolean> {

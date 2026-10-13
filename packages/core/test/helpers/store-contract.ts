@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { BUSY } from '../../src/index.js';
 import type { Install, Store } from '../../src/index.js';
 
@@ -88,6 +88,32 @@ export function storeContract(name: string, makeWorld: () => StoreWorld | Promis
         const read = await store.readSlices([one.hash]);
         expect(Array.from(read.get(one.hash)!)).toEqual(Array.from(one.bytes));
         expect(await store.putSlice(one.hash, one.bytes)).toBe('held');
+      });
+
+      it('hashes the slices it reads at the same time', async () => {
+        const store = await (await make()).open('a');
+        const held = ['one', 'two', 'three', 'four'].map(slice);
+        for (const s of held) await store.putSlice(s.hash, s.bytes);
+
+        const subtle = globalThis.crypto.subtle;
+        const real = subtle.digest.bind(subtle);
+        let running = 0;
+        let mostAtOnce = 0;
+        const spy = vi.spyOn(subtle, 'digest').mockImplementation(async (...args: Parameters<typeof real>) => {
+          mostAtOnce = Math.max(mostAtOnce, ++running);
+          try {
+            await new Promise((resolve) => setTimeout(resolve, 1));
+            return await real(...args);
+          } finally {
+            running--;
+          }
+        });
+        try {
+          expect((await store.readSlices(held.map((s) => s.hash))).size).toBe(4);
+        } finally {
+          spy.mockRestore();
+        }
+        expect(mostAtOnce).toBeGreaterThan(1);
       });
 
       it('leaves a hash that was never stored out of the result', async () => {

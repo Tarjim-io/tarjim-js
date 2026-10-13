@@ -164,7 +164,6 @@ export class IndexedDbStore implements Store {
   }
 
   async readSlices(hashes: string[]): Promise<Map<string, Uint8Array>> {
-    const found = new Map<string, Uint8Array>();
     let raw: Map<string, unknown>;
     try {
       raw = await transact<Map<string, unknown>>(this.db, ['slices'], 'readonly', (tx, settle, fail) => {
@@ -180,14 +179,16 @@ export class IndexedDbStore implements Store {
       });
     } catch {
       this.degraded = true;
-      return found;
+      return new Map();
     }
     // Hashed after the transaction: awaiting inside one would let it commit early.
-    for (const [hash, value] of raw) {
-      const bytes = toBytes(value);
-      if (bytes && (await sha256Hex(bytes)) === hash) found.set(hash, bytes);
-    }
-    return found;
+    const checked = await Promise.all(
+      [...raw].map(async ([hash, value]): Promise<[string, Uint8Array] | undefined> => {
+        const bytes = toBytes(value);
+        return bytes && (await sha256Hex(bytes)) === hash ? [hash, bytes] : undefined;
+      }),
+    );
+    return new Map(checked.filter((entry) => entry !== undefined));
   }
 
   async writeInstall(install: Install, as: 'active' | 'pending'): Promise<boolean> {
