@@ -44,8 +44,8 @@ X-Tarjim-Api-Version: 2026-07-29
 - Do not follow redirects. A redirect would carry the key to another host; treat it as a network
   failure.
 - In a browser, the two headers make the request preflighted. The delivery routes allow
-  `X-Tarjim-Apikey`, `X-Tarjim-Api-Version` and `If-None-Match` from any origin without credentials,
-  and expose `ETag` and `Retry-After`. Send no cookies (`credentials: 'omit'`).
+  the two headers from any origin without credentials, and expose `Retry-After`. Send no cookies
+  (`credentials: 'omit'`).
 
 A `200` answer is JSON. The fields a client uses:
 
@@ -110,16 +110,19 @@ network failure exactly like a 5xx.
 
 | | origin mode (`authenticated === true`) | CDN mode (anything else) |
 |---|---|---|
-| `manifestUrl`, `slicesBaseUrl` | relative to the delivery URL: resolve them against it (`new URL(ref, deliveryUrl)`) | absolute `https` URLs |
+| `manifestUrl`, `slicesBaseUrl` | relative to the delivery URL: resolve them against it (`new URL(ref, deliveryUrl)`). If the result's origin is not the delivery URL's origin, do not send the request. | absolute `https` URLs; refuse anything else |
 | request headers | the same two headers as `meta` | **none**. A simple `GET`, no credentials. |
 | query string | none | append `?` + `signedQuery`, verbatim |
 
 The object URL of a file is `slicesBaseUrl + hash + "." + fileType`, plus the signed query in CDN mode.
+Build it only when `hash` is 64 lowercase hex characters. **Never send the key headers to any origin but
+the delivery URL's**, whatever a response says.
 
 - In CDN mode, a 403 on an object means the signature expired or the object is gone; the two cannot
-  be told apart. Re-read `meta` **once**, then retry with the new `signedQuery`. If it still fails,
-  keep what you hold for that file and try again at the next check. A browser may see this as a
-  network failure; treat that the same way.
+  be told apart. Re-read `meta` **once**. If its `checksum` is unchanged, retry with the new
+  `signedQuery`; if the checksum changed, the stage moved to another release: give up on these files.
+  If the retry fails too, keep what you hold for that file and try again at the next check. A browser
+  may see the failure as a network error; treat that the same way.
 - In origin mode, a 403, 404 or 503 on an object means the file cannot be fetched this time. Keep what
   you hold.
 - Objects are immutable (content-addressed), so an HTTP cache may keep them.
@@ -127,7 +130,7 @@ The object URL of a file is `slicesBaseUrl + hash + "." + fileType`, plus the si
 ## 5. Slices
 
 Verify each file: the sha256 of the bytes received equals `hash`, and its length equals `size`.
-`transferSize` is advisory. A file that fails is not used, and the rest of the release still is.
+`transferSize` is advisory. A file that fails verification is never used.
 
 A JSON slice:
 
@@ -160,7 +163,9 @@ A JSON slice:
   - If the count is `0` and a `zero` child exists, use it in every language.
   - If the chosen form is missing, use `other`.
 - **String arrays.** A parent lists its items by id, in order, in `string_array_child_keys`.
-- **Media.** `type` is `image`, `audio/video` or `file`, and `value` is the file's URL.
+- **Media.** `type` is `image`, `audio/video` or `file`, and `value` is the file's URL. Like any value
+  it is written by a translator: use it only after checking it is an `https:` URL, and never assign an
+  unchecked value to `href` or `src` (a `javascript:` or `data:` URL there runs script).
 - An empty `value` means "not translated". A key with no value in a locale may be absent.
 - Keys match exactly and are case-sensitive.
 - Values are text written by translators. Treat them as **untrusted**: never insert one into a page as
@@ -173,8 +178,9 @@ A JSON slice:
 - Serve ONE locale per user: the one asked for if the manifest lists it, otherwise your fallback
   language, as a whole. A key missing in that locale shows its fallback text (or its name). It is
   never taken from another locale, which would mix languages on one screen.
-- Switch to a new release only when every file you need from it is verified. A failed download never
-  changes what is shown.
+- A client that holds a previous release switches to a new one only when every file it needs from it
+  is verified, so a failed download never changes what is shown. A client that holds nothing (such
+  as the reference client) may serve the files that verified and show key names for the rest.
 - Values pass through as authored. Placeholder conventions a client may implement: `{name}` from
   named arguments; `%s`, `%d`, `%@`, `%1$s`, `%%` from positional arguments; and, as a legacy form,
   `%%name%%`.

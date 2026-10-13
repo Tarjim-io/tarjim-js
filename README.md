@@ -59,7 +59,7 @@ page, a network failure), you get a client whose lookups return the key names, p
 |---|---|
 | `t(key, args?, { bundle?, namespace? })` | the text, or the key name when missing. `args` fills `{name}` from an object, or `%s %d %1$s` from an array. `{ count: n }` picks a plural form. |
 | `tArray(key)` | a string array's items, in order |
-| `entry(key)` | `{ value, id, type, attributes, className }`, or `null`. Use it for media keys. |
+| `entry(key)` | `{ value, id, type, attributes, className }`, or `null`. Use it for media keys: their `value` is an `https:` URL, or the entry is `null`. |
 | `language` | the locale being served |
 | `active` | whether translations were loaded |
 
@@ -70,7 +70,8 @@ To switch language, call `start()` again.
 - **The key is public.** Anyone can read a key in a web page. Only ever use a delivery key bound to a
   track and a stage, never any other key.
 - **Values are untrusted text.** Insert them with `textContent`, never `innerHTML`. Copy only the
-  `entry().attributes` you expect; never spread them onto an element.
+  `entry().attributes` you expect; never spread them onto an element. `entry()` returns a media key
+  only when its URL is `https:`; never put any other value into `href` or `src`.
 - **Every page load waits for the network.** The client keeps nothing between page loads, so key names
   show until the first check finishes. It suits a demo, a small site, or a port to another language.
 - **Your copy never updates itself.** Watch this repository's releases for fixes (see
