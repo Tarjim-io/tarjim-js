@@ -54,3 +54,14 @@ describe('media URLs', () => {
     expect(codes()).toEqual([]);
   });
 });
+
+describe('class names', () => {
+  it('returns null for a class that could break out of an attribute', async () => {
+    const { client } = await clientFor({
+      bad: leaf(1, 'x', { class: 'x" onclick="y' }),
+      good: leaf(2, 'x', { class: 'hero big_1-a' }),
+    });
+    expect(client.entry('bad').className).toBe(null);
+    expect(client.entry('good').className).toBe('hero big_1-a');
+  });
+});
