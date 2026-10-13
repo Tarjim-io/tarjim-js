@@ -113,17 +113,19 @@ describe('the locale a visitor switches to', () => {
 
   it('goes to the pending install when the pending manifest is the held one', async () => {
     const w = await installed();
-    const next = makeRelease({ content: { b1: 'v2' }, releaseId: 2 });
+    const first = w.server.current;
+    const next = makeRelease({ content: { b1: 'v1', b2: 'v1' }, releaseId: 2 });
     w.server.use(next);
     await w.run();
-    const active = (await w.state()).active!;
     w.selection.locale = 'fr';
 
     const result = await fetchHeldLocale(w.ctx);
-    expect(result.outcome).toBe('downloaded');
+    expect(result.outcome).toBe('activated');
     const state = await w.state();
     expect(state.pending?.slots[slotName('b1', 'fr')]).toBe(hashOf(next, 'b1', 'fr'));
-    expect(state.active).toEqual(active);
+    expect(state.pending?.slots[slotName('b2', 'fr')]).toBe(hashOf(next, 'b2', 'fr'));
+    expect(state.active?.releaseId).toBe(1);
+    expect(state.active?.slots[slotName('b1', 'fr')]).toBe(hashOf(first, 'b1', 'fr'));
   });
 
   it('reads the meta once when the recorded signature is refused', async () => {

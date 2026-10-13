@@ -201,13 +201,21 @@ function build(
   };
 }
 
-async function commit(context: CycleContext, install: Install, role: Role): Promise<boolean> {
-  if (!(await context.store.writeInstall(install, role))) return false;
+async function write(context: CycleContext, install: Install, role: Role): Promise<boolean> {
+  return context.store.writeInstall(install, role);
+}
+
+async function tidy(context: CycleContext): Promise<void> {
   try {
     await context.store.cleanup();
   } catch {
     // Leftover slices are removed by the next install.
   }
+}
+
+async function commit(context: CycleContext, install: Install, role: Role): Promise<boolean> {
+  if (!(await write(context, install, role))) return false;
+  await tidy(context);
   return true;
 }
 
@@ -220,41 +228,59 @@ async function writeFailed(context: CycleContext): Promise<CycleResult> {
   return storageFailure();
 }
 
+// Extends both the install that is showing and the one waiting, so the language shows at once and survives the switch to the waiting one.
 async function heldLocale(context: CycleContext): Promise<CycleResult> {
   const { store } = context;
   const state = await store.readState();
-  const base = state.pending ?? state.active;
+  const top = state.pending ?? state.active;
   const locale = context.locale();
-  if (!base || locale === undefined) return none();
-  const mark = `${base.checksum}\n${locale}`;
+  if (!top || locale === undefined) return none();
+  const mark = `${top.checksum}\n${locale}`;
   if (state.localeFetched === mark) return none();
 
-  const wanted = new Map<string, SliceFile>();
-  for (const [slot, file] of wantedSlots(base.manifest, locale)) {
-    // An owed slot belongs to the retry that a fresh meta triggers, which brings a fresh signature.
-    if (base.slots[slot] === undefined && !base.owed.includes(slot)) wanted.set(slot, file);
+  const plans: Array<{ role: Role; base: Install; wanted: Map<string, SliceFile> }> = [];
+  for (const [role, base] of [['active', state.active], ['pending', state.pending]] as Array<[Role, Install | undefined]>) {
+    const wanted = new Map<string, SliceFile>();
+    for (const [slot, file] of base ? wantedSlots(base.manifest, locale) : []) {
+      // An owed slot belongs to the retry that a fresh meta triggers, which brings a fresh signature.
+      if (base!.slots[slot] === undefined && !base!.owed.includes(slot)) wanted.set(slot, file);
+    }
+    if (base && wanted.size) plans.push({ role, base, wanted });
   }
-  if (!wanted.size) return none();
+  if (!plans.length) return none();
   if (notBeforeOf(state, context.now()) > context.now()) return { outcome: 'notDue', conditions: [] };
 
-  const got = await acquire(context, wanted, metaOf(base), identityOf(context, state));
-  if (got.storage) return storageFailure();
-  const role: Role = state.pending ? 'pending' : 'active';
-  let install: Install | undefined;
-  // Slots that could not be fetched are written as owed, so the install records the attempt.
-  if (got.verified.size || !got.transient) {
-    const names = [...new Set([...Object.keys(base.slots), ...base.owed, ...wanted.keys()])];
-    install = build(context, base, previousOf(state, base), names, got);
-    if (!(await commit(context, install, role))) return writeFailed(context);
+  const made: Partial<Record<Role, { install: Install; fresh: boolean }>> = {};
+  const conditions: CycleCondition[] = [];
+  let transient = false;
+  let retryAfter: number | undefined;
+  for (const { role, base, wanted } of plans) {
+    const got = await acquire(context, wanted, metaOf(base), identityOf(context, state));
+    if (got.storage) return storageFailure();
+    conditions.push(...integrityConditions(got));
+    transient ||= got.transient;
+    if (got.retryAfter !== undefined) retryAfter = Math.max(retryAfter ?? 0, got.retryAfter);
+    // Slots that could not be fetched are written as owed, so the install records the attempt.
+    if (got.verified.size || !got.transient) {
+      const names = [...new Set([...Object.keys(base.slots), ...base.owed, ...wanted.keys()])];
+      made[role] = { install: build(context, base, previousOf(state, base), names, got), fresh: got.verified.size > 0 };
+    }
   }
+
+  const { active, pending } = made;
+  // Writing an active install drops the pending one, so that is written back after it.
+  if (active && !(await write(context, active.install, 'active'))) return writeFailed(context);
+  const waiting = pending?.install ?? (active ? state.pending : undefined);
+  if (waiting && !(await write(context, waiting, 'pending'))) return writeFailed(context);
+  if (active || pending) await tidy(context);
   // A transient failure leaves the mark unset so a later cycle tries again, after the backoff.
-  if (got.transient) await backOff(context, got.retryAfter);
+  if (transient) await backOff(context, retryAfter);
   else await store.updateState((current) => ({ ...current, localeFetched: mark }));
 
-  const conditions = integrityConditions(got);
-  const extra = install ? activeOf(install, role) : {};
-  if (install && got.verified.size) return { outcome: installedOutcome(role), install, conditions, ...extra };
-  return { outcome: got.transient ? 'failed' : 'noChange', conditions, ...extra };
+  const extra = active ? { active: active.install } : {};
+  const fresh = [pending, active].find((entry) => entry?.fresh);
+  if (fresh) return { outcome: active?.fresh ? 'activated' : 'downloaded', install: fresh.install, conditions, ...extra };
+  return { outcome: transient ? 'failed' : 'noChange', conditions, ...extra };
 }
 
 async function retryOwed(
