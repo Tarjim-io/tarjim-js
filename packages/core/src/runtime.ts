@@ -1,6 +1,6 @@
 import { dueAt } from './cadence.js';
-import { fetchHeldLocale, runCycle } from './cycle.js';
-import type { CycleContext, CycleOutcome, CycleReason, CycleResult } from './cycle.js';
+import { fetchHeldLocale, runCycle, wantedSlots } from './cycle.js';
+import type { CycleContext, CycleReason, CycleResult } from './cycle.js';
 import { createDeliveryClient } from './delivery-client.js';
 import { deliveryUrlProblem } from './delivery-url.js';
 import { normaliseAppVersion } from './app-version.js';
@@ -11,7 +11,7 @@ import type { BundleRef, FormatArgs, LookupOptions, Snapshot, TarjimEntry } from
 import { createScheduler } from './scheduler.js';
 import type { Scheduler, Timers, Visibility } from './scheduler.js';
 import type { Slice } from './slice.js';
-import { BUSY, parseSlot, slotName } from './store.js';
+import { BUSY, parseSlot } from './store.js';
 import type { Install, State, Store } from './store.js';
 import type { FetchFunction } from './types.js';
 import { SDK_VERSION } from './version.js';
@@ -108,32 +108,21 @@ const NO_BUNDLE: BundleRef = { type: 'namespace', name: '' };
 const CODE = /^[\w.-]{1,64}$/;
 
 const MESSAGES: Record<string, string> = {
-  'insecure-context': 'Downloads need a secure context; only the embedded text is served.',
-  'storage-unavailable': 'Storage is unavailable; only the embedded text is served.',
-  'embedded-invalid': 'embedded must be an array of slices; it was ignored.',
-  'app-version-normalised': 'appVersion was reduced to a plain major.minor.patch version.',
-  'unbound-key': 'The key is bound to no release; only the embedded text is served.',
-  configuration: 'The delivery server refused the request; check the delivery URL and the key.',
-  'meta-schema': 'The delivery server uses a newer format than this SDK reads; the held text is kept.',
-  'manifest-schema': 'A release uses a newer manifest format than this SDK reads; it was not installed.',
-  'manifest-integrity': 'A manifest did not match its checksum and was rejected.',
+  'insecure-context': 'Insecure context: only the embedded text is served.',
+  'storage-unavailable': 'Storage unavailable: only the embedded text is served.',
+  'embedded-invalid': 'embedded must be an array of slices; ignored.',
+  'app-version-normalised': 'appVersion was reduced to major.minor.patch.',
+  'unbound-key': 'The key is bound to no release: only the embedded text is served.',
+  configuration: 'The delivery server refused the request; check the URL and key.',
+  'meta-schema': 'The delivery server uses a newer format; the held text is kept.',
+  'manifest-schema': 'A release uses a newer manifest format; not installed.',
+  'manifest-integrity': 'A manifest failed its checksum and was rejected.',
   'manifest-unreadable': 'A manifest could not be read.',
-  'slice-integrity': 'A slice did not match its hash and was not used.',
-  'slice-schema': 'A slice uses a newer format than this SDK reads; it was not used.',
+  'slice-integrity': 'A slice failed its hash and was not used.',
+  'slice-schema': 'A slice uses a newer format; not used.',
   storage: 'Writing to storage failed.',
-  'attribute-dropped': 'Attributes outside the allowed list were dropped from an entry.',
+  'attribute-dropped': 'Attributes outside the allowed list were dropped.',
   'media-url-rejected': 'A media URL that is not https was rejected.',
-};
-
-const RESULT: Record<CycleOutcome, CheckResult> = {
-  busy: 'notDue',
-  notDue: 'notDue',
-  noChange: 'noChange',
-  downloaded: 'downloaded',
-  // The text that arrived is already showing, but the caller asked for news and this is it.
-  activated: 'downloaded',
-  failed: 'failed',
-  unbound: 'failed',
 };
 
 const safe = (fn: () => void): void => {
@@ -368,7 +357,7 @@ export async function createRuntime(given: TarjimConfig, platform: Platform): Pr
         Object.entries(rest).filter(([, value]) => typeof value === 'number' || (typeof value === 'string' && CODE.test(value))),
       ) as Details;
       await report(
-        code === 'unbound' ? 'unbound-key' : code.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`),
+        code,
         Object.keys(details).length ? details : undefined,
       );
     }
@@ -418,7 +407,7 @@ export async function createRuntime(given: TarjimConfig, platform: Platform): Pr
       if (result.outcome === 'busy' && store && !activeInstall) {
         void whenFree(() => store.withLock(async () => undefined), (free) => free === BUSY).then(adopt, () => undefined);
       } else await adopt();
-      return RESULT[result.outcome];
+      return result.outcome === 'activated' ? 'downloaded' : result.outcome === 'unbound' || result.outcome === 'failed' ? 'failed' : result.outcome === 'busy' ? 'notDue' : result.outcome;
     } catch {
       return 'failed';
     } finally {
@@ -459,10 +448,8 @@ export async function createRuntime(given: TarjimConfig, platform: Platform): Pr
   if (waiting) await timeout;
 
   const persist = config.persistLanguage ?? config.language === undefined;
-  const lacks = (install: Install | undefined, locale: string): boolean =>
-    Object.entries(install?.manifest.slices ?? {}).some(
-      ([id, files]) => Object.keys(files).includes(locale) && install?.slots[slotName(id, locale)] === undefined,
-    );
+  const lacks = (install: Install, locale: string): boolean =>
+    [...wantedSlots(install.manifest, locale).keys()].some((slot) => install.slots[slot] === undefined);
 
   return {
     get language() {
@@ -491,7 +478,7 @@ export async function createRuntime(given: TarjimConfig, platform: Platform): Pr
           const result = await whenFree(() => fetchHeldLocale(cycle), ({ outcome }) => outcome === 'busy');
           await reportAll(result);
           state = await store.readState();
-          if (result.outcome === 'failed' || lacks(state.active, match)) throw new Error('The text for that language could not be downloaded.');
+          if (result.outcome === 'failed' || (state.active !== undefined && lacks(state.active, match))) throw new Error('The text for that language could not be downloaded.');
           activeInstall = state.active;
         }
         const next = await load(activeInstall, match);

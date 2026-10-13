@@ -16,13 +16,13 @@ export type CycleOutcome =
 
 /** Something the page owner may need to hear about; the caller decides whether and how often to report it. */
 export type CycleCondition =
-  | { code: 'unbound' }
+  | { code: 'unbound-key' }
   | { code: 'configuration'; status: number; problemCode?: string }
-  | { code: 'metaSchema'; schemaVersion: unknown }
-  | { code: 'manifestSchema'; schemaVersion: unknown }
-  | { code: 'manifestIntegrity' }
-  | { code: 'manifestUnreadable' }
-  | { code: 'sliceIntegrity' }
+  | { code: 'meta-schema'; schemaVersion: unknown }
+  | { code: 'manifest-schema'; schemaVersion: unknown }
+  | { code: 'manifest-integrity' }
+  | { code: 'manifest-unreadable' }
+  | { code: 'slice-integrity' }
   | { code: 'storage' };
 
 export interface CycleResult {
@@ -65,7 +65,7 @@ function fileOf(manifest: Manifest, slot: string): SliceFile | undefined {
   return parsed && lookup(manifest, parsed.bundle, parsed.locale);
 }
 
-function wantedSlots(manifest: Manifest, locale: string): Map<string, SliceFile> {
+export function wantedSlots(manifest: Manifest, locale: string): Map<string, SliceFile> {
   const wanted = new Map<string, SliceFile>();
   for (const bundle of Object.keys(manifest.slices)) {
     const file = lookup(manifest, bundle, locale);
@@ -220,7 +220,7 @@ async function commit(context: CycleContext, install: Install, role: Role): Prom
 }
 
 const installedOutcome = (role: Role): CycleOutcome => (role === 'active' ? 'activated' : 'downloaded');
-const integrityConditions = (got: Acquired): CycleCondition[] => (got.integrity ? [{ code: 'sliceIntegrity' }] : []);
+const integrityConditions = (got: Acquired): CycleCondition[] => (got.integrity ? [{ code: 'slice-integrity' }] : []);
 const activeOf = (install: Install, role: Role): { active?: Install } => (role === 'active' ? { active: install } : {});
 
 async function writeFailed(context: CycleContext): Promise<CycleResult> {
@@ -329,7 +329,7 @@ async function poll(context: CycleContext, state: State): Promise<CycleResult> {
   switch (answer.kind) {
     case 'unbound':
       await settle(context, clampPollAfter(state.lastPollAfter));
-      return { outcome: 'unbound', conditions: [{ code: 'unbound' }] };
+      return { outcome: 'unbound', conditions: [{ code: 'unbound-key' }] };
     case 'unreleased':
       await settle(context, clampPollAfter(answer.pollAfter, MIN_POLL_SECONDS));
       return none();
@@ -359,7 +359,7 @@ async function poll(context: CycleContext, state: State): Promise<CycleResult> {
 
   if (meta.schemaVersion !== KNOWN_SCHEMA) {
     await settle(context, pollAfter);
-    return { outcome: 'noChange', conditions: [{ code: 'metaSchema', schemaVersion: meta.schemaVersion }] };
+    return { outcome: 'noChange', conditions: [{ code: 'meta-schema', schemaVersion: meta.schemaVersion }] };
   }
   if (state.rejectedChecksums?.includes(meta.checksum)) {
     await settle(context, pollAfter);
@@ -388,16 +388,16 @@ async function poll(context: CycleContext, state: State): Promise<CycleResult> {
   if (fetched.kind !== 'verified') {
     if (fetched.kind === 'checksumMismatch') {
       await settle(context, pollAfter, reject);
-      return { outcome: 'failed', conditions: [{ code: 'manifestIntegrity' }] };
+      return { outcome: 'failed', conditions: [{ code: 'manifest-integrity' }] };
     }
     await backOff(context, 'retryAfter' in fetched ? fetched.retryAfter : undefined);
     // Not rejected: an oversized proxy page and a bad release look the same from here, and the next meta may differ.
-    return { outcome: 'failed', conditions: fetched.kind === 'unreadable' ? [{ code: 'manifestUnreadable' }] : [] };
+    return { outcome: 'failed', conditions: fetched.kind === 'unreadable' ? [{ code: 'manifest-unreadable' }] : [] };
   }
   const { manifest } = fetched;
   if (manifest.schemaVersion !== KNOWN_SCHEMA) {
     await settle(context, pollAfter, reject);
-    return { outcome: 'failed', conditions: [{ code: 'manifestSchema', schemaVersion: manifest.schemaVersion }] };
+    return { outcome: 'failed', conditions: [{ code: 'manifest-schema', schemaVersion: manifest.schemaVersion }] };
   }
 
   const wanted = wantedSlots(manifest, locale);

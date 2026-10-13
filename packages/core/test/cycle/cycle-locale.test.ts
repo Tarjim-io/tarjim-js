@@ -169,7 +169,7 @@ describe('a locale whose slices cannot be used', () => {
     const result = await fetchHeldLocale(w.ctx);
     expect(result.outcome).toBe('noChange');
     expect(result.install).toBeUndefined();
-    expect(result.conditions).toContainEqual({ code: 'sliceIntegrity' });
+    expect(result.conditions).toContainEqual({ code: 'slice-integrity' });
     const state = await w.state();
     expect([...(state.active?.owed ?? [])].sort()).toEqual([slotName('b1', 'fr'), slotName('b2', 'fr')]);
     expect(state.active?.slots[slotName('b1', 'fr')]).toBeUndefined();

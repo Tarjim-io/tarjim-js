@@ -217,7 +217,7 @@ describe('a manifest that cannot be used', () => {
 
     const result = await w.run();
     expect(result.outcome).toBe('failed');
-    expect(result.conditions).toContainEqual({ code: 'manifestIntegrity' });
+    expect(result.conditions).toContainEqual({ code: 'manifest-integrity' });
     const state = await w.state();
     expect(state.rejectedChecksums).toContain(checksum);
     expect(state.active).toBeUndefined();
@@ -239,7 +239,7 @@ describe('a manifest that cannot be used', () => {
 
     const result = await w.run();
     expect(result.outcome).toBe('failed');
-    expect(result.conditions).toContainEqual({ code: 'manifestSchema', schemaVersion: 2 });
+    expect(result.conditions).toContainEqual({ code: 'manifest-schema', schemaVersion: 2 });
     const state = await w.state();
     expect(state.rejectedChecksums).toContain(checksum);
     expect(state.active).toBeUndefined();
@@ -259,7 +259,7 @@ describe('a manifest that cannot be used', () => {
 
     const result = await w.run();
     expect(result.outcome).toBe('noChange');
-    expect(result.conditions).toContainEqual({ code: 'metaSchema', schemaVersion: 2 });
+    expect(result.conditions).toContainEqual({ code: 'meta-schema', schemaVersion: 2 });
     expect(w.server.count('manifest')).toBe(0);
     const state = await w.state();
     expect(state.active).toBeUndefined();
@@ -287,7 +287,7 @@ describe('a slice that does not verify', () => {
     const w = makeWorld({ release: bad });
 
     const result = await w.run();
-    expect(result.conditions).toContainEqual({ code: 'sliceIntegrity' });
+    expect(result.conditions).toContainEqual({ code: 'slice-integrity' });
     const state = await w.state();
     expect(state.active?.owed).toEqual([slotName('b1', 'en')]);
     expect(state.active?.slots[slotName('b2', 'en')]).toBe(hashOf(bad, 'b2', 'en'));
@@ -303,7 +303,7 @@ describe('a slice that does not verify', () => {
     w.server.use(v2);
 
     const result = await w.run();
-    expect(result.conditions).toContainEqual({ code: 'sliceIntegrity' });
+    expect(result.conditions).toContainEqual({ code: 'slice-integrity' });
     const state = await w.state();
     expect(state.active).toEqual(active);
     expect(state.pending?.slots[slotName('b1', 'en')]).toBe(hashOf(v1, 'b1', 'en'));
