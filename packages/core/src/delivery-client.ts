@@ -170,8 +170,7 @@ export function createDeliveryClient(options: DeliveryClientOptions): DeliveryCl
       }
       const query = meta.signedQuery;
       if (!reference.startsWith('https://') || /[?#]/.test(reference) || typeof query !== 'string' || !QUERY.test(query)) return null;
-      // A bare host has no path to hold an object, so it cannot be a real reference.
-      if (new URL(reference).pathname === '/') return null;
+      new URL(reference);
       return { url: `${reference}?${query}`, extra: {} };
     } catch {
       return null;

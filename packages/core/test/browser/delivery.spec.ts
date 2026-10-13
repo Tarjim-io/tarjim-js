@@ -122,7 +122,9 @@ test('fetches, verifies and reads a whole release over the CDN with only simple 
   }
 });
 
-test('treats an answer that redirects as a network failure and never requests the target', async ({ page }) => {
+test('treats an answer that redirects as a network failure and never requests the target', async ({ page, browserName }) => {
+  // Playwright cannot fulfil a request with a redirect status in WebKit; the Node tests cover it there.
+  test.skip(browserName === 'webkit', 'a routed redirect is not possible in WebKit');
   const seen = await serve(page, { redirectMeta: true });
 
   const outcome = await page.evaluate(async ({ deliveryUrl, apiKey }) => {

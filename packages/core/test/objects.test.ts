@@ -85,7 +85,7 @@ describe('manifest over the CDN', () => {
   it.each([
     ['403 from the edge', () => fixtureResponse('errors/object-403-cdn-edge.json'), { kind: 'unfetchable', status: 403 }],
     ['404', () => fixtureResponse('errors/manifest-404-manifest-not-found.json'), { kind: 'unfetchable', status: 404 }],
-    ['503', () => fixtureResponse('errors/manifest-503-manifest-unavailable.json'), { kind: 'unfetchable', status: 503 }],
+    ['503', () => fixtureResponse('errors/manifest-503-manifest-unavailable.json'), { kind: 'unfetchable', status: 503, retryAfter: 30 }],
     ['410', () => respond(410, 'gone'), { kind: 'unfetchable', status: 410 }],
     ['400', () => respond(400, 'bad'), { kind: 'unfetchable', status: 400 }],
     ['429 with a hint', () => respond(429, null, { headers: { 'Retry-After': '7' } }), { kind: 'throttled', retryAfter: 7 }],
@@ -141,7 +141,7 @@ describe('references the CDN path refuses', () => {
     ['relative', 'releases/1/'],
     ['carrying a query', 'https://cdn.example.invalid/releases/1/?x=1'],
     ['carrying a fragment', 'https://cdn.example.invalid/releases/1/#top'],
-    ['not a URL', 'https://'],
+    ['not a URL', 'https://cdn example.invalid/releases/1/'],
     ['a different scheme', 'ftp://cdn.example.invalid/releases/1/'],
   ];
 
