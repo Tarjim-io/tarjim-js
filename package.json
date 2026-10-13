@@ -9,6 +9,7 @@
   },
   "scripts": {
     "test": "vitest run",
+    "test:react18": "vitest run --config packages/react/vitest.react18.config.js",
     "typecheck": "pnpm -r typecheck",
     "build": "pnpm -r build",
     "size": "node scripts/size-budget.mjs",

@@ -32,6 +32,8 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm build
       - run: pnpm test
+      - run: pnpm test:react18
+        if: matrix.node == '22'
       - run: pnpm size
       - name: The built package loads as ESM and as CommonJS
         run: |
