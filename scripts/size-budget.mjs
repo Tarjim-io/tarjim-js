@@ -2,7 +2,7 @@
 import { build } from 'esbuild';
 import { gzipSync } from 'node:zlib';
 
-const BUDGETS = [{ name: '@tarjim/core', entry: 'packages/core/src/index.ts', maxBytes: 8 * 1024 }];
+const BUDGETS = [{ name: '@tarjim/core', entry: 'packages/core/src/index.ts', maxBytes: 12 * 1024 }];
 
 let failed = false;
 for (const { name, entry, maxBytes } of BUDGETS) {

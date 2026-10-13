@@ -29,6 +29,8 @@ export interface State {
   notBefore?: number;
   checkNowAt?: number;
   languageOverride?: string;
+  /** "<checksum>\n<locale>" of the last held-manifest locale fetch, so it runs once per change. */
+  localeFetched?: string;
   installId?: string;
   rejectedChecksums?: string[];
   reported?: Record<string, number>;
@@ -55,6 +57,11 @@ export interface Store {
 
 export function slotName(bundleId: string, locale: string): string {
   return `${bundleId}\n${locale}`;
+}
+
+export function parseSlot(name: string): { bundle: string; locale: string } | undefined {
+  const split = name.indexOf('\n');
+  return split < 0 ? undefined : { bundle: name.slice(0, split), locale: name.slice(split + 1) };
 }
 
 export async function storeId(deliveryUrl: string, apiKey: string): Promise<string> {
@@ -136,7 +143,7 @@ export function sanitiseInstall(raw: unknown): Install | undefined {
 }
 
 const NUMBER_FIELDS = ['lastCheck', 'lastPollAfter', 'backoffStep', 'notBefore', 'checkNowAt'] as const;
-const STRING_FIELDS = ['languageOverride', 'installId'] as const;
+const STRING_FIELDS = ['languageOverride', 'localeFetched', 'installId'] as const;
 
 /** Keeps every field that has the right shape and drops the rest; never throws. */
 export function sanitiseState(raw: unknown): State {
