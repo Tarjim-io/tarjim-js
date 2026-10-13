@@ -1,4 +1,14 @@
-import { BUSY, installHashes, mergeState, runWithProcessLock, sanitiseInstall, sanitiseState, sha256Hex } from '@tarjim/core';
+import {
+  BUSY,
+  installHashes,
+  mergeState,
+  referencedHashes,
+  runWithProcessLock,
+  sanitiseInstall,
+  sanitiseState,
+  sha256Hex,
+  withInstall,
+} from '@tarjim/core';
 import type { Install, State, Store } from '@tarjim/core';
 
 export const DATABASE_NAME = 'tarjim-delivery-v1';
@@ -209,9 +219,7 @@ export class IndexedDbStore implements Store {
         const write = (): void => {
           if (missing) return settle(false);
           onResult(state.get(this.id), fail, (raw) => {
-            const next: State = { ...sanitiseState(raw), [as]: clean };
-            if (as === 'active') delete next.pending;
-            state.put(mergeState(raw, next), this.id);
+            state.put(mergeState(raw, withInstall(sanitiseState(raw), clean, as)), this.id);
             settle(true);
           });
         };
@@ -243,8 +251,7 @@ export class IndexedDbStore implements Store {
     await transact<void>(this.db, ['slices', 'state'], 'readwrite', (tx, _settle, fail) => {
       const slices = tx.objectStore('slices');
       onResult(tx.objectStore('state').get(this.id), fail, (raw) => {
-        const state = sanitiseState(raw);
-        const keep = new Set([state.active, state.pending].flatMap((install) => (install ? installHashes(install) : [])));
+        const keep = referencedHashes(sanitiseState(raw));
         // The id check stays even with a range: it is what keeps a sibling's slices safe if the range is wrong.
         const range = this.ownKeys();
         onResult(range ? slices.getAllKeys(range) : slices.getAllKeys(), fail, (keys) => {

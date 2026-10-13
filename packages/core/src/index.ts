@@ -14,7 +14,9 @@ export {
   runWithProcessLock,
   sanitiseInstall,
   sanitiseState,
+  referencedHashes,
   slotName,
   storeId,
+  withInstall,
 } from './store.js';
 export type { Install, State, Store } from './store.js';

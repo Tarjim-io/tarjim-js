@@ -182,6 +182,18 @@ export function installHashes(install: Install): string[] {
   return [...new Set(Object.values(install.slots))];
 }
 
+/** The state with `install` as its active or pending install; an active install replaces any pending one. */
+export function withInstall(state: State, install: Install, as: 'active' | 'pending'): State {
+  const next: State = { ...state, [as]: install };
+  if (as === 'active') delete next.pending;
+  return next;
+}
+
+/** Every hash that the active or pending install names. */
+export function referencedHashes(state: State): Set<string> {
+  return new Set([state.active, state.pending].flatMap((install) => (install ? installHashes(install) : [])));
+}
+
 const heldLocks = new Set<string>();
 
 /** The lock for places without a lock manager: one holder per id in this process, the rest told BUSY. */
@@ -241,15 +253,12 @@ export class MemoryStore implements Store {
   async writeInstall(install: Install, as: 'active' | 'pending'): Promise<boolean> {
     const clean = sanitiseInstall(install);
     if (!clean || !installHashes(clean).every((hash) => this.slices.has(hash))) return false;
-    const next: State = { ...sanitiseState(this.state), [as]: clean };
-    if (as === 'active') delete next.pending;
-    this.state = mergeState(this.state, next);
+    this.state = mergeState(this.state, withInstall(sanitiseState(this.state), clean, as));
     return true;
   }
 
   async cleanup(): Promise<void> {
-    const state = sanitiseState(this.state);
-    const keep = new Set([state.active, state.pending].flatMap((install) => (install ? installHashes(install) : [])));
+    const keep = referencedHashes(sanitiseState(this.state));
     for (const hash of [...this.slices.keys()]) if (!keep.has(hash)) this.slices.delete(hash);
   }
 
