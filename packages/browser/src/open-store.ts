@@ -53,20 +53,31 @@ function openDatabase(factory: IDBFactory, timeoutMs: number): Promise<OpenResul
   });
 }
 
+let unhashedCount = 0;
+
+// Reading the global itself throws in a sandboxed frame.
+function reachableFactory(): IDBFactory | undefined {
+  try {
+    return globalThis.indexedDB;
+  } catch {
+    return undefined;
+  }
+}
+
 /** Never rejects: whatever goes wrong, the caller gets a working in-memory store marked degraded. */
 export async function openStore(options: OpenStoreOptions): Promise<OpenedStore> {
   let id: string;
   try {
     id = await storeId(options.deliveryUrl, options.apiKey);
   } catch {
-    return { store: new MemoryStore('unhashed', { degraded: true }), degradedReason: 'error' };
+    return { store: new MemoryStore(`unhashed-${++unhashedCount}`, { degraded: true }), degradedReason: 'error' };
   }
   const fallback = (degradedReason: 'unavailable' | 'blocked' | 'error'): OpenedStore => ({
     store: new MemoryStore(id, { degraded: true }),
     degradedReason,
   });
 
-  const factory = options.indexedDB ?? globalThis.indexedDB;
+  const factory = options.indexedDB ?? reachableFactory();
   if (!factory) return fallback('unavailable');
   const opened = await openDatabase(factory, options.timeoutMs ?? 3000);
   if (!('db' in opened)) return fallback(opened.reason);
