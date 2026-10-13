@@ -1,9 +1,10 @@
 import { IDBFactory } from 'fake-indexeddb';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryStore, storeId } from '@tarjim/core';
 import { DATABASE_NAME, openStore } from '../src/index.js';
 import { API_KEY, DELIVERY_URL, FakeLocks, openRaw, request } from './helpers/idb-world.js';
-import { makeInstall, slice } from '../../core/test/helpers/store-contract.js';
+import { BUSY } from '@tarjim/core';
+import { makeInstall, slice, until } from '../../core/test/helpers/store-contract.js';
 
 const options = { deliveryUrl: DELIVERY_URL, apiKey: API_KEY };
 
@@ -91,6 +92,53 @@ describe('openStore', () => {
     const opened = await openStore({ ...options, indexedDB: throwing });
     expect(opened.degradedReason).toBe('error');
     expect(opened.store.degraded).toBe(true);
+  });
+
+  it('resolves as unavailable, never rejecting, when reading the indexedDB global throws', async () => {
+    Object.defineProperty(globalThis, 'indexedDB', {
+      configurable: true,
+      get() {
+        throw new DOMException('The operation is insecure.', 'SecurityError');
+      },
+    });
+    try {
+      const opened = await openStore(options);
+      expect(opened.degradedReason).toBe('unavailable');
+      expect(opened.store.degraded).toBe(true);
+      await useStore(opened.store);
+    } finally {
+      delete (globalThis as { indexedDB?: unknown }).indexedDB;
+    }
+  });
+
+  describe('when the id cannot be hashed', () => {
+    beforeEach(() => vi.stubGlobal('crypto', {}));
+
+    it('still resolves with a degraded in-memory store', async () => {
+      const opened = await openStore({ ...options, indexedDB: new IDBFactory() });
+      expect(opened.degradedReason).toBe('error');
+      expect(opened.store.degraded).toBe(true);
+      expect(opened.store).toBeInstanceOf(MemoryStore);
+    });
+
+    it('gives every call its own id, so two stores do not block each other', async () => {
+      const one = (await openStore(options)).store;
+      const two = (await openStore(options)).store;
+      expect(one.id).not.toBe(two.id);
+
+      let entered = false;
+      let release!: () => void;
+      const holding = one.withLock(async () => {
+        entered = true;
+        await new Promise<void>((resolve) => (release = resolve));
+      });
+      await until(() => entered, 'the first store to take its lock');
+      const ran = await two.withLock(async () => 'ran');
+      expect(ran).not.toBe(BUSY);
+      expect(ran).toBe('ran');
+      release();
+      await holding;
+    });
   });
 
   it('opens version 1 of tarjim-delivery-v1 and nothing else', async () => {
