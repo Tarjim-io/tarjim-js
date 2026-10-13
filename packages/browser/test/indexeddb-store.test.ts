@@ -1,10 +1,12 @@
-import { IDBDatabase, IDBFactory, IDBObjectStore } from 'fake-indexeddb';
+import { IDBDatabase, IDBFactory, IDBKeyRange, IDBObjectStore } from 'fake-indexeddb';
 import { describe, expect, it, vi } from 'vitest';
 import { BUSY, storeId } from '@tarjim/core';
+import { openStore } from '../src/index.js';
 import { makeInstall, slice, storeContract, until } from '../../core/test/helpers/store-contract.js';
 import {
   API_KEY,
   DELIVERY_URL,
+  FakeLocks,
   createIdbWorld,
   dumpRaw,
   flatten,
@@ -180,6 +182,73 @@ describe('IndexedDbStore', () => {
       ).rejects.toThrow('bad change');
       expect(store.degraded).toBe(false);
       world.dispose();
+    });
+  });
+
+  describe('cleanup scans', () => {
+    async function twoStores(factory: IDBFactory, keyRange?: Pick<typeof IDBKeyRange, 'bound'>) {
+      const open = async (apiKey: string) => {
+        const { store } = await openStore({
+          deliveryUrl: DELIVERY_URL,
+          apiKey,
+          indexedDB: factory,
+          locks: new FakeLocks(),
+          ...(keyRange ? { keyRange } : {}),
+        });
+        return store;
+      };
+      return { mine: await open(`${API_KEY}-mine`), sibling: await open(`${API_KEY}-sibling`) };
+    }
+
+    async function cleanupLeavesSibling(factory: IDBFactory, keyRange?: Pick<typeof IDBKeyRange, 'bound'>) {
+      const { mine, sibling } = await twoStores(factory, keyRange);
+      const orphan = slice('orphan');
+      const theirs = slice('theirs');
+      await mine.putSlice(orphan.hash, orphan.bytes);
+      await sibling.putSlice(theirs.hash, theirs.bytes);
+      await mine.cleanup();
+      expect((await mine.readSlices([orphan.hash])).size).toBe(0);
+      expect((await sibling.readSlices([theirs.hash])).size).toBe(1);
+      return mine;
+    }
+
+    it('reads only its own key range when a key range is injected', async () => {
+      const factory = new IDBFactory();
+      const bound = vi.fn((lower: IDBValidKey, upper: IDBValidKey) => IDBKeyRange.bound(lower, upper));
+      const getAllKeys = vi.spyOn(IDBObjectStore.prototype, 'getAllKeys');
+      try {
+        const mine = await cleanupLeavesSibling(factory, { bound } as Pick<typeof IDBKeyRange, 'bound'>);
+        expect(bound).toHaveBeenCalledWith([mine.id], [mine.id, []]);
+        const range = getAllKeys.mock.calls[getAllKeys.mock.calls.length - 1]?.[0];
+        expect(range).toBeInstanceOf(IDBKeyRange);
+      } finally {
+        getAllKeys.mockRestore();
+      }
+    });
+
+    it('uses the global key range when none is injected', async () => {
+      const bound = vi.fn((lower: IDBValidKey, upper: IDBValidKey) => IDBKeyRange.bound(lower, upper));
+      vi.stubGlobal('IDBKeyRange', { bound });
+      try {
+        await cleanupLeavesSibling(new IDBFactory());
+        expect(bound).toHaveBeenCalledTimes(1);
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    });
+
+    it('lists every key and filters when no key range is reachable', async () => {
+      const getAllKeys = vi.spyOn(IDBObjectStore.prototype, 'getAllKeys');
+      try {
+        await cleanupLeavesSibling(new IDBFactory());
+        expect(getAllKeys.mock.calls[getAllKeys.mock.calls.length - 1]).toEqual([]);
+      } finally {
+        getAllKeys.mockRestore();
+      }
+    });
+
+    it('still leaves a sibling alone when the range turns out to cover everything', async () => {
+      await cleanupLeavesSibling(new IDBFactory(), { bound: () => undefined } as unknown as Pick<typeof IDBKeyRange, 'bound'>);
     });
   });
 

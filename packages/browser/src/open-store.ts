@@ -1,13 +1,14 @@
 import { MemoryStore, storeId } from '@tarjim/core';
 import type { Store } from '@tarjim/core';
 import { DATABASE_NAME, IndexedDbStore } from './indexeddb-store.js';
-import type { LockManagerLike } from './indexeddb-store.js';
+import type { KeyRangeLike, LockManagerLike } from './indexeddb-store.js';
 
 export interface OpenStoreOptions {
   deliveryUrl: string;
   apiKey: string;
   indexedDB?: IDBFactory;
   locks?: LockManagerLike;
+  keyRange?: KeyRangeLike;
   timeoutMs?: number;
 }
 
@@ -81,5 +82,5 @@ export async function openStore(options: OpenStoreOptions): Promise<OpenedStore>
   if (!factory) return fallback('unavailable');
   const opened = await openDatabase(factory, options.timeoutMs ?? 3000);
   if (!('db' in opened)) return fallback(opened.reason);
-  return { store: new IndexedDbStore(id, opened.db, options.locks) };
+  return { store: new IndexedDbStore(id, opened.db, options.locks, options.keyRange) };
 }
