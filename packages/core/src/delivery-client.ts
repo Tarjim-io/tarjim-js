@@ -1,3 +1,4 @@
+import { normaliseAppVersion } from './app-version.js';
 import { HEX64, isRecord, parseJson } from './json.js';
 import { decodeManifest } from './manifest.js';
 import { sha256Hex, verify } from './verifier.js';
@@ -59,7 +60,8 @@ function concat(chunks: Uint8Array[]): Uint8Array {
 }
 
 export function createDeliveryClient(options: DeliveryClientOptions): DeliveryClient {
-  const { deliveryUrl, apiKey, appVersion, platform } = options;
+  const { deliveryUrl, apiKey, platform } = options;
+  const appVersion = normaliseAppVersion(options.appVersion);
   const timeoutMs = options.timeoutMs ?? 20000;
   const send = options.fetch;
   const keyHeaders = { 'X-Tarjim-Apikey': apiKey, 'X-Tarjim-Api-Version': API_VERSION };
@@ -128,7 +130,7 @@ export function createDeliveryClient(options: DeliveryClientOptions): DeliveryCl
       ['appBuild', identity.appBuild],
       ['installId', identity.installId],
     ];
-    // appVersion is already reduced to digits and dots, so it is sent as is.
+    // appVersion is reduced to digits and dots, so it is sent as is.
     let url = `${deliveryUrl}?appVersion=${appVersion}`;
     for (const [name, value] of fields) {
       if (value !== undefined && value !== null) url += `&${name}=${encodeURIComponent(String(value))}`;
@@ -178,8 +180,11 @@ export function createDeliveryClient(options: DeliveryClientOptions): DeliveryCl
     try {
       if (typeof reference !== 'string' || reference === '') return null;
       if (meta.authenticated === true) {
-        const url = new URL(reference, deliveryUrl);
-        return url.origin === new URL(deliveryUrl).origin ? { url: url.href, extra: { headers: keyHeaders } } : null;
+        const base = new URL(deliveryUrl);
+        // An opaque origin ('null') equals itself, which would let any reference through.
+        if ((base.protocol !== 'https:' && base.protocol !== 'http:') || base.origin === 'null') return null;
+        const url = new URL(reference, base);
+        return url.origin === base.origin ? { url: url.href, extra: { headers: keyHeaders } } : null;
       }
       const query = meta.signedQuery;
       if (!reference.startsWith('https://') || /[?#]/.test(reference) || typeof query !== 'string' || !QUERY.test(query)) return null;

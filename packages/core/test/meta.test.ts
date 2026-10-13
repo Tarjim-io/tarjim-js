@@ -61,11 +61,21 @@ describe('the meta request', () => {
     expect(fetchFn.mock.calls[0]![0]).toBe(`${DELIVERY_URL}?appVersion=1.4.0&platform=web&sdkVersion=${SDK_VERSION}`);
   });
 
-  it('does not percent-encode the app version', async () => {
+  it('normalises the app version itself, so a build suffix never reaches the wire', async () => {
     const fetchFn = answering(() => respond(200, goodMeta()));
     await clientFor(fetchFn, { appVersion: '1.4.0+7' }).fetchMeta({});
 
-    expect(fetchFn.mock.calls[0]![0]).toContain('?appVersion=1.4.0+7&platform=web');
+    expect(fetchFn.mock.calls[0]![0]).toContain('?appVersion=1.4.0&platform=web');
+    expect(fetchFn.mock.calls[0]![0]).not.toContain('%2B');
+  });
+
+  it('cannot be made to inject a parameter through the app version', async () => {
+    const fetchFn = answering(() => respond(200, goodMeta()));
+    await clientFor(fetchFn, { appVersion: '1.2&release=9' }).fetchMeta({});
+
+    const url = fetchFn.mock.calls[0]![0];
+    expect(url).toBe(`${DELIVERY_URL}?appVersion=1.2.0&platform=web&sdkVersion=${SDK_VERSION}`);
+    expect(queryOf(url)).not.toHaveProperty('release');
   });
 
   it('adds every present identity field in a fixed order, encoded', async () => {

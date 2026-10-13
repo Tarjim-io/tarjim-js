@@ -257,6 +257,22 @@ describe('objects over the origin path', () => {
   });
 });
 
+describe('origin mode with a delivery URL that is not http or https', () => {
+  it.each([
+    ['a file URL', 'file:///srv/tarjim/meta'],
+    ['an ftp URL', 'ftp://delivery.example.invalid/meta'],
+  ])('refuses every object for %s, and sends nothing', async (_label, deliveryUrl) => {
+    const release = simpleRelease({ mode: 'origin' });
+    const client = clientFor(release.fetch, { deliveryUrl });
+
+    expect(await client.fetchManifest(release.meta)).toEqual({ kind: 'refused' });
+    const files = jsonFiles(release);
+    const { results } = await client.fetchSlices(release.meta, files);
+    expect([...results.values()]).toEqual(files.map(() => ({ kind: 'refused' })));
+    expect(release.requests).toHaveLength(0);
+  });
+});
+
 describe('a slices base over the origin path', () => {
   it('is requested with a trailing slash and refused without one, sending nothing', async () => {
     const release = simpleRelease({ mode: 'origin' });

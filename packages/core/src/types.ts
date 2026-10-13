@@ -4,7 +4,7 @@ export interface DeliveryClientOptions {
   /** The meta URL as the console shows it. Validate it with `deliveryUrlProblem` first. */
   deliveryUrl: string;
   apiKey: string;
-  /** Already normalised with `normaliseAppVersion`: it is sent raw. */
+  /** Normalised by the client with `normaliseAppVersion` before it is sent. */
   appVersion: string;
   platform: string;
   fetch: FetchFunction;
