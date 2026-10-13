@@ -81,6 +81,22 @@ To switch language, call `start()` again.
 - It needs a secure page (`https`, or `localhost`) to verify downloads, and a browser from 2022 or
   later (Chrome 90, Firefox 96, Safari 15.4).
 
+## Packages
+
+The packages below are `0.x`, pre-release, and not published to npm yet. Build them from this
+repository with `pnpm install && pnpm build`.
+
+| package | |
+|---|---|
+| [`@tarjim/core`](packages/core) | the runtime: delivery protocol, verification, locale choice and lookups |
+| [`@tarjim/browser`](packages/browser) | the browser's storage and timers around the core, and the script-tag file `tarjim-browser.iife.js` |
+
+[`examples/plain-html/with-package.html`](examples/plain-html) loads the script-tag file with a
+strict Content Security Policy. Its `integrity` value is the sha384 of the built file, so print a new
+one with `node scripts/sri.mjs packages/browser/dist/tarjim-browser.iife.js` and paste it into the
+page whenever the file changes. Moving from the older `tarjim-react-client`? See
+[the migration note](docs/migrating-from-tarjim-react-client.md).
+
 ## Development
 
 ```
