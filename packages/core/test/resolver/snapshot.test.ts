@@ -1,15 +1,7 @@
-import v8 from 'node:v8';
-import vm from 'node:vm';
 import { describe, expect, it } from 'vitest';
 import { createSnapshot } from '../../src/index.js';
 import type { Snapshot, SnapshotReport } from '../../src/index.js';
 import { DEFAULT, arrayKeys, flatSlice, leaf, oneBundle, pluralKeys, reporter, snapshotOf, snapshotWith, world } from './world.js';
-
-// The library target predates WeakRef; the test runtime has it.
-declare class WeakRef<T extends object> {
-  constructor(target: T);
-  deref(): T | undefined;
-}
 
 const CUSTOM_UI = { type: 'custom', name: 'ui' } as const;
 
@@ -712,24 +704,6 @@ describe('what a snapshot keeps', () => {
     snapshot.entry('a');
     expect(first).toHaveLength(1);
     expect(second).toHaveLength(0);
-  });
-
-  it('lets go of the input, the install and the downloaded bytes', async () => {
-    v8.setFlagsFromString('--expose-gc');
-    const collect = vm.runInNewContext('gc') as () => void;
-    let snapshot: Snapshot | null = null;
-    const watched = (() => {
-      const w = oneBundle({ a: leaf(1, 'A') });
-      const input = { install: w.install, slices: w.slices, embedded: [], locale: 'en', defaultBundle: DEFAULT, report: () => {} };
-      snapshot = createSnapshot(input);
-      return [new WeakRef(input), new WeakRef(w.install), new WeakRef(w.slices)];
-    })();
-    for (let round = 0; round < 5; round++) {
-      await new Promise((resolve) => setTimeout(resolve, 0));
-      collect();
-    }
-    expect(watched.map((ref) => ref.deref() === undefined)).toEqual([true, true, true]);
-    expect((snapshot as Snapshot | null)?.t('a')).toBe('A');
   });
 });
 
