@@ -5,5 +5,15 @@ export { sha256Hex, verify } from './verifier.js';
 export { decodeManifest } from './manifest.js';
 export { createDeliveryClient } from './delivery-client.js';
 export type * from './types.js';
-export { BUSY, MemoryStore, composeSlots, slotName, storeId } from './store.js';
+export {
+  BUSY,
+  MemoryStore,
+  composeSlots,
+  installHashes,
+  runWithProcessLock,
+  sanitiseInstall,
+  sanitiseState,
+  slotName,
+  storeId,
+} from './store.js';
 export type { Install, State, Store } from './store.js';
