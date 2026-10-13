@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { BUSY, MemoryStore } from '../../src/index.js';
 import { makeInstall, slice, storeContract, until } from '../helpers/store-contract.js';
 import type { StoreWorld } from '../helpers/store-contract.js';
@@ -10,6 +10,9 @@ function memoryWorld(): StoreWorld {
       let store = stores.get(name);
       if (!store) stores.set(name, (store = new MemoryStore(name)));
       return store;
+    },
+    async tamper(name, hash, bytes) {
+      (stores.get(name) as unknown as { slices: Map<string, Uint8Array> }).slices.set(hash, bytes);
     },
   };
 }
@@ -62,5 +65,17 @@ describe('MemoryStore state written by something newer', () => {
     expect(await store.writeInstall(makeInstall({ 'ui\nen': one.hash }), 'active')).toBe(true);
     expect(raw(store).futureField).toBe('x');
     expect(raw(store).pending).toBeUndefined();
+  });
+});
+
+describe('MemoryStore slices', () => {
+  it('does not rewrite a held slice whose bytes are valid', async () => {
+    const store = new MemoryStore('a');
+    const one = slice('one');
+    await store.putSlice(one.hash, one.bytes);
+    const slices = (store as unknown as { slices: Map<string, Uint8Array> }).slices;
+    const set = vi.spyOn(slices, 'set');
+    expect(await store.putSlice(one.hash, one.bytes)).toBe('held');
+    expect(set).not.toHaveBeenCalled();
   });
 });

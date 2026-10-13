@@ -46,6 +46,8 @@ export async function until(condition: () => boolean, what: string): Promise<voi
 export interface StoreWorld {
   /** The same name always reaches the same data; IndexedDB hands back a new instance each call (a second tab). */
   open(name: string): Promise<Store>;
+  /** Replaces the stored bytes under a hash without going through the store, as damage on disk would. */
+  tamper(name: string, hash: string, bytes: Uint8Array): Promise<void>;
   dispose?(): void;
 }
 
@@ -72,6 +74,20 @@ export function storeContract(name: string, makeWorld: () => StoreWorld | Promis
         expect(await store.putSlice(first.hash, bytesOf('something else'))).toBe('held');
         const read = await store.readSlices([first.hash]);
         expect(Array.from(read.get(first.hash)!)).toEqual(Array.from(first.bytes));
+      });
+
+      it('writes good bytes over a held record that no longer hashes to its key', async () => {
+        const w = await make();
+        const store = await w.open('a');
+        const one = slice('one');
+        await store.putSlice(one.hash, one.bytes);
+        await w.tamper('a', one.hash, bytesOf('damaged'));
+        expect((await store.readSlices([one.hash])).size).toBe(0);
+
+        expect(await store.putSlice(one.hash, one.bytes)).toBe('stored');
+        const read = await store.readSlices([one.hash]);
+        expect(Array.from(read.get(one.hash)!)).toEqual(Array.from(one.bytes));
+        expect(await store.putSlice(one.hash, one.bytes)).toBe('held');
       });
 
       it('leaves a hash that was never stored out of the result', async () => {

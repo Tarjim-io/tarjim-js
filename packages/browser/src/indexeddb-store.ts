@@ -63,6 +63,8 @@ function toBytes(value: unknown): Uint8Array | undefined {
   return undefined;
 }
 
+const sameBytes = (a: Uint8Array, b: Uint8Array): boolean => a.length === b.length && a.every((byte, i) => byte === b[i]);
+
 export class IndexedDbStore implements Store {
   readonly id: string;
   degraded = false;
@@ -131,13 +133,26 @@ export class IndexedDbStore implements Store {
   }
 
   async putSlice(hash: string, bytes: Uint8Array): Promise<'stored' | 'held' | 'quota' | 'unavailable'> {
+    const key = [this.id, hash];
     try {
+      // Checked inside the transaction so two tabs racing on one hash cannot both write.
+      const first = await transact<{ existing?: unknown }>(this.db, ['slices'], 'readwrite', (tx, settle, fail) => {
+        const slices = tx.objectStore('slices');
+        onResult(slices.get(key), fail, (existing) => {
+          if (existing === undefined) slices.put(bytes.slice(), key);
+          settle({ existing });
+        });
+      });
+      if (first.existing === undefined) return 'stored';
+      const held = toBytes(first.existing);
+      if (held && (await sha256Hex(held)) === hash) return 'held';
+
+      // The held record is damaged. It is only replaced if it is still the damaged one just seen.
       return await transact<'stored' | 'held'>(this.db, ['slices'], 'readwrite', (tx, settle, fail) => {
         const slices = tx.objectStore('slices');
-        const key = [this.id, hash];
-        // Checked inside the transaction so two tabs racing on one hash cannot both write.
-        onResult(slices.get(key), fail, (existing) => {
-          if (existing !== undefined) return settle('held');
+        onResult(slices.get(key), fail, (current) => {
+          const now = toBytes(current);
+          if (current !== undefined && now && !(held && sameBytes(now, held))) return settle('held');
           slices.put(bytes.slice(), key);
           settle('stored');
         });

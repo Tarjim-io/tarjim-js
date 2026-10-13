@@ -40,6 +40,9 @@ export function createIdbWorld(factory: IDBFactory = new IDBFactory()): IdbWorld
     factory,
     locks,
     keyOf,
+    async tamper(_name, hash, bytes) {
+      if ((await tamperSlice(factory, hash, bytes)) === 0) throw new Error('nothing to tamper with');
+    },
     async open(name) {
       const result = await openStore({ deliveryUrl: DELIVERY_URL, apiKey: keyOf(name), indexedDB: factory, locks });
       if (result.degradedReason) throw new Error(`store opened degraded: ${result.degradedReason}`);
