@@ -20,7 +20,7 @@ function fakePage(lang, keys) {
 
 // Runs the page's two scripts, in order, in one browser-like context, with only `fetch` replaced.
 async function runExample(scripts, lang, keys) {
-  const deliveryUrl = 'https://delivery.example.com/t/1/projects/1/delivery/meta';
+  const deliveryUrl = 'https://delivery.example.com/copy/it/from/the/console/delivery/meta';
   const server = serveRecording(RECORDING, { deliveryUrl });
   const page = fakePage(lang, keys);
   const context = vm.createContext({
