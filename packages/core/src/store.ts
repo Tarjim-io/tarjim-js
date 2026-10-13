@@ -29,6 +29,8 @@ export interface State {
   notBefore?: number;
   checkNowAt?: number;
   languageOverride?: string;
+  /** "<checksum>\n<locale>" of the last held-manifest locale fetch, so it runs once per change. */
+  localeFetched?: string;
   installId?: string;
   rejectedChecksums?: string[];
   reported?: Record<string, number>;
