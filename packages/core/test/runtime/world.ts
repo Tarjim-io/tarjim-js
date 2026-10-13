@@ -256,7 +256,7 @@ export function embedded(locale: string, extra: Record<string, unknown> = {}): S
     locale,
     keys: {
       a: { id: '901', value: `embedded a ${locale}`.replace(/ en$/, ''), tags: [] },
-      e: { id: '902', value: `embedded e ${locale}`, tags: [] },
+      e: { id: '902', value: `embedded e ${locale}`.replace(/ en$/, ''), tags: [] },
       ...extra,
     },
   } as unknown as Slice;

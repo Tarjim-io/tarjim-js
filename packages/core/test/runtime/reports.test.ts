@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { afterEach, describe, expect, it } from 'vitest';
 import { API_KEY, SIGNED_QUERY, problem, respond, simpleRelease } from '../support.js';
 import { DAY_MS, makeWorld, settle, until } from './world.js';
@@ -126,8 +127,10 @@ describe('what each condition is called', () => {
   });
 
   it('reports a manifest it cannot read', async () => {
-    world = makeWorld();
-    world.server.on('manifest', () => respond(200, '{ not json'));
+    // The junk must match the meta's checksum, or it is an integrity failure instead.
+    const junk = '{ not json';
+    world = makeWorld({ release: { metaOverrides: { checksum: createHash('sha256').update(junk).digest('hex') } } });
+    world.server.on('manifest', () => respond(200, junk));
     const runtime = await world.start();
     await until(() => world.reportsOf('manifest-unreadable').length > 0, 'the report');
     await again(runtime);
