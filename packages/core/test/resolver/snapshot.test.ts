@@ -243,6 +243,28 @@ describe('only the current manifest is served', () => {
     expect(snapshot.t('gone', undefined, { bundle: CUSTOM_UI })).toBe('gone');
   });
 
+  it('lets an embedded slice of an unlisted bundle answer default lookups, after every listed source', () => {
+    const w = oneBundle({ shared: leaf(1, 'downloaded'), blank: leaf(2, '') });
+    const embedded = [
+      flatSlice('old9', 'en', { shared: leaf(3, 'unlisted'), blank: leaf(4, 'unlisted blank'), extra: leaf(5, 'unlisted extra') }),
+      flatSlice('ns1', 'en', { blank: leaf(6, 'listed embedded') }),
+    ];
+    const snapshot = snapshotOf(w, { embedded });
+    expect(snapshot.t('shared')).toBe('downloaded');
+    expect(snapshot.t('blank')).toBe('listed embedded');
+    expect(snapshot.t('extra')).toBe('unlisted extra');
+    expect(snapshot.t('extra', undefined, { bundle: CUSTOM_UI })).toBe('extra');
+  });
+
+  it('falls to embedded when the default bundle was dropped or renumbered', () => {
+    const dropped = world({ c1: CUSTOM_UI }, { c1: { en: flatSlice('c1', 'en', { other: leaf(1, 'x') }) } });
+    const renumbered = world({ ns2: DEFAULT }, { ns2: { en: flatSlice('ns2', 'en', { other: leaf(1, 'x') }) } });
+    const embedded = [flatSlice('ns1', 'en', { k: leaf(2, 'embedded') })];
+    expect(snapshotOf(dropped, { embedded }).t('k')).toBe('embedded');
+    expect(snapshotOf(renumbered, { embedded }).t('k')).toBe('embedded');
+    expect(snapshotOf(renumbered, { embedded }).entry('k')?.value).toBe('embedded');
+  });
+
   it('serves the same bundle again when a later manifest lists it', () => {
     const w = both();
     const without = both();

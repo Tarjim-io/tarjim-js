@@ -198,9 +198,11 @@ export function createSnapshot(input: SnapshotInput): Snapshot {
   // manifest lists are served, and of those sharing a type and name only the lowest id, even when
   // that one has nothing for this locale: a lookup never moves on to another bundle of the name.
   const served = new Map<string, Source[]>();
+  const listed = new Set<string>();
   if (install) {
     const chosen = new Map<string, { id: string; bundle: ManifestBundle }>();
     for (const [id, bundle] of Object.entries(install.manifest.bundles)) {
+      listed.add(id);
       const key = bundleKey(bundle.type, bundle.name);
       const current = chosen.get(key);
       if (current === undefined || compareBundleIds(id, current.id) < 0) chosen.set(key, { id, bundle });
@@ -210,10 +212,13 @@ export function createSnapshot(input: SnapshotInput): Snapshot {
       const copies = embedded.filter((slice) => slice.bundle === id);
       served.set(key, (downloaded ? [downloaded, ...copies] : copies).map((slice) => sourceOf(slice, bundle.namespaces)));
     }
-  } else {
-    // Embedded slices carry no manifest to match them to a bundle, so they answer the default one.
-    served.set(bundleKey(defaultBundle.type, defaultBundle.name), embedded.map((slice) => sourceOf(slice, [])));
   }
+  // An embedded slice the manifest does not list has nothing to match it to a bundle, so it answers
+  // the default one, after every source that was matched; that keeps a dropped or renumbered default
+  // bundle readable.
+  const defaultKey = bundleKey(defaultBundle.type, defaultBundle.name);
+  const unmatched = embedded.filter((slice) => !listed.has(slice.bundle)).map((slice) => sourceOf(slice, []));
+  served.set(defaultKey, [...(served.get(defaultKey) ?? []), ...unmatched]);
 
   const pluralRules = pluralRulesFor(locale);
 
