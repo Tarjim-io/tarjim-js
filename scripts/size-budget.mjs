@@ -1,7 +1,10 @@
 // Fails when a package's minified, gzipped bundle grows past its budget.
 import { build } from 'esbuild';
 import { existsSync, readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { gzipSync } from 'node:zlib';
+
+const ROOT = fileURLToPath(new URL('..', import.meta.url));
 
 const BUDGETS = [{ name: '@tarjim/core', entry: 'packages/core/src/index.ts', maxBytes: 12 * 1024 }];
 // Measured on the shipped file, so it needs `pnpm build` first. 14923 bytes measured, rounded up to
@@ -19,7 +22,7 @@ function report(name, size, maxBytes) {
 
 for (const { name, entry, maxBytes } of BUDGETS) {
   const result = await build({
-    entryPoints: [entry],
+    entryPoints: [`${ROOT}${entry}`],
     bundle: true,
     minify: true,
     format: 'esm',
@@ -30,8 +33,8 @@ for (const { name, entry, maxBytes } of BUDGETS) {
   report(name, gzipped(result.outputFiles[0].contents), maxBytes);
 }
 
-if (existsSync(SCRIPT_TAG.file)) {
-  report(SCRIPT_TAG.name, gzipped(readFileSync(SCRIPT_TAG.file)), SCRIPT_TAG.maxBytes);
+if (existsSync(`${ROOT}${SCRIPT_TAG.file}`)) {
+  report(SCRIPT_TAG.name, gzipped(readFileSync(`${ROOT}${SCRIPT_TAG.file}`)), SCRIPT_TAG.maxBytes);
 } else {
   console.log(`${SCRIPT_TAG.name}: ${SCRIPT_TAG.file} is missing; run \`pnpm build\` first`);
   failed = true;
