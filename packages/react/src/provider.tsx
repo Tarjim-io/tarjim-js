@@ -78,6 +78,7 @@ function embeddedOnly(config: TarjimConfig, ready: boolean): Source {
       // The SDK refuses a config without one on its own terms; a render must not fail first.
       defaultBundle: config.defaultBundle ?? { type: 'namespace', name: '' },
       legacyPercentPlaceholders: config.legacyPercentPlaceholders === true,
+      keyCase: config.keyCase === 'lower' ? 'lower' : 'exact',
     });
   // The browser's languages are left out: the server render cannot know them, and the two must agree.
   let snapshot = open(
