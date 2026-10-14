@@ -1,9 +1,25 @@
 {
   "name": "@tarjim/browser",
   "version": "0.1.0",
-  "private": true,
   "description": "The browser half of the Tarjim web SDK: storage, cross-tab locking and the script-tag build.",
   "license": "MIT",
+  "keywords": ["tarjim", "i18n", "translations"],
+  "homepage": "https://github.com/Tarjim-io/tarjim-js/tree/main/packages/browser#readme",
+  "bugs": {
+    "url": "https://github.com/Tarjim-io/tarjim-js/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Tarjim-io/tarjim-js.git",
+    "directory": "packages/browser"
+  },
+  "engines": {
+    "node": "^20.19.0 || >=22.12.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
   "type": "module",
   "sideEffects": false,
   "main": "./dist/index.cjs",
@@ -21,7 +37,11 @@
       }
     }
   },
-  "files": ["dist"],
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "build": "rm -rf dist && tsup",
     "typecheck": "tsc --noEmit"
