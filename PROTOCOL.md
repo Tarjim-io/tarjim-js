@@ -167,7 +167,8 @@ A JSON slice:
   it is written by a translator: use it only after checking it is an `https:` URL, and never assign an
   unchecked value to `href` or `src` (a `javascript:` or `data:` URL there runs script).
 - An empty `value` means "not translated". A key with no value in a locale may be absent.
-- Keys match exactly and are case-sensitive.
+- Key names are delivered as authored and are case-sensitive: a lookup matches them exactly. A client
+  may offer to fold case on its own side (the packages' `keyCase: 'lower'`); the server never does.
 - Values are text written by translators. Treat them as **untrusted**: never insert one into a page as
   HTML. The same goes for `attributes`: copy only the attribute names you expect (e.g. `alt`, `title`,
   `width`, `height`) and never spread the object onto an element.
