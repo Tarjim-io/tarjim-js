@@ -32,6 +32,8 @@ export interface TarjimConfig {
   strict?: boolean;
   analytics?: { installId?: boolean };
   legacyPercentPlaceholders?: boolean;
+  /** `'lower'` matches key names whatever their case. Defaults to `'exact'`. */
+  keyCase?: 'exact' | 'lower';
   onReport?: (report: TarjimReport) => void;
   /** Log reports at info level instead of debug. */
   debug?: boolean;
@@ -152,6 +154,8 @@ export async function createRuntime(given: TarjimConfig, platform: Platform): Pr
     (bundleOk ? null : 'defaultBundle needs a type and a name') ??
     (fallbackLanguage && typeof fallbackLanguage === 'string' ? null : 'fallbackLanguage is required');
   if (problem !== null && config.strict) throw new TarjimConfigError(problem);
+  const keyCase = config.keyCase === 'lower' ? 'lower' : 'exact';
+  if (config.strict && config.keyCase !== undefined && config.keyCase !== keyCase) throw new TarjimConfigError('keyCase must be "exact" or "lower"');
 
   // Armed before the first await: the wait is measured from the call to start, not from when storage opens.
   const { timers, visibility } = platform;
@@ -275,6 +279,7 @@ export async function createRuntime(given: TarjimConfig, platform: Platform): Pr
       locale,
       defaultBundle: bundle,
       legacyPercentPlaceholders: config.legacyPercentPlaceholders === true,
+      keyCase,
       report: ({ code, details }) => void report(code, details as Details | undefined),
     });
     return { snapshot, sig: [locale, ...Object.values(slots).sort()].join(), missing };

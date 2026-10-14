@@ -54,27 +54,33 @@ function decodeLeaf(raw: unknown): Leaf | null {
   return leaf;
 }
 
-function decodeLeaves(raw: unknown): Map<string, Leaf> {
+// Final and medial sigma are both the lowercase of Σ, and which one toLowerCase gives depends on what
+// follows it, so "ΟΔΟΣ" and "ΟΔΟΣ.one" would otherwise fold to names that no longer share a prefix.
+export const foldKey = (key: string): string => key.toLowerCase().replace(/ς/g, 'σ');
+
+function decodeLeaves(raw: unknown, lower: boolean): Map<string, Leaf> {
   const leaves = new Map<string, Leaf>();
   if (!isRecord(raw)) return leaves;
   for (const [key, value] of Object.entries(raw)) {
     const leaf = decodeLeaf(value);
-    if (leaf) leaves.set(key, leaf);
+    // Names that fold together keep the first one in the file, so a clash resolves the same way every time.
+    const name = lower ? foldKey(key) : key;
+    if (leaf && !leaves.has(name)) leaves.set(name, leaf);
   }
   return leaves;
 }
 
 /** Null for anything but a readable version-1 slice. Never throws. */
-export function decodeSlice(value: unknown): DecodedSlice | null {
+export function decodeSlice(value: unknown, lower = false): DecodedSlice | null {
   try {
     if (!isRecord(value) || value['schemaVersion'] !== 1) return null;
     const namespaces = new Map<string, Map<string, Leaf>>();
     if (isRecord(value['namespaces'])) {
       for (const [name, keys] of Object.entries(value['namespaces'])) {
-        if (isRecord(keys)) namespaces.set(name, decodeLeaves(keys));
+        if (isRecord(keys)) namespaces.set(name, decodeLeaves(keys, lower));
       }
     } else {
-      namespaces.set('', decodeLeaves(value['keys']));
+      namespaces.set('', decodeLeaves(value['keys'], lower));
     }
     const byId = new Map<string, Map<string, { key: string; leaf: Leaf }>>();
     for (const [name, leaves] of namespaces) {

@@ -354,3 +354,20 @@ describe('a provider mounted on server-rendered HTML', () => {
     expect(container.innerHTML).not.toMatch(invisible);
   });
 });
+
+describe('keyCase on a hydrating mount', () => {
+  it("applies 'lower' to the embedded text on the server and on the client", async () => {
+    const { config, start } = setup({ keyCase: 'lower' });
+    function Upper() {
+      return <p id="probe">{useTarjim().t('A')}</p>;
+    }
+    const { html, container, recoverable } = await hydrate(() => (
+      <TarjimProvider hydrating config={config} start={start}>
+        <Upper />
+      </TarjimProvider>
+    ));
+    expect(html).toContain('embedded a');
+    expect(container.innerHTML).toBe(html);
+    expect(recoverable).not.toHaveBeenCalled();
+  });
+});
