@@ -286,7 +286,8 @@ describe('the release workflow separates the code it runs from the secrets it ho
     const publishes = stepsOf(jobBlock('publish')).filter((step) => /\bnpm publish/.test(step));
     const commands = publishes.map((step) => /\bnpm publish (\S+)(.*)/.exec(step));
     expect(commands.map((c) => c[1])).toEqual(
-      ['core', 'browser', 'react'].map((name) => `release/tarjim-${name}-$VERSION.tgz`),
+      // Without the leading ./ npm reads `release/x.tgz` as a GitHub owner/repo and tries to clone it.
+      ['core', 'browser', 'react'].map((name) => `./release/tarjim-${name}-$VERSION.tgz`),
     );
     for (const c of commands) expect(c[2]).toBe(' --provenance --access public --tag "$CHANNEL"');
   });
