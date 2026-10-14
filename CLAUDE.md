@@ -17,6 +17,29 @@ self-hosted by the site that uses it. MIT licensed. Versions stay `0.x` until th
   publishes it as a pre-release with its sha256, only from a commit on `main`. Making a release
   customer-facing is a separate, deliberate step: rewrite its notes without the pre-release warning
   (`gh release edit <tag> --notes-file …`), then `gh release edit <tag> --prerelease=false --latest`.
+- Release the npm packages (`@tarjim/core`, `@tarjim/browser`, `@tarjim/react`, always one shared
+  version): `node scripts/set-version.mjs <version>`, commit it as `chore(release): v<version>`, open a
+  PR, merge, then tag the merge commit `v<version>` and push the tag. `.github/workflows/release-packages.yml`
+  tests and packs the packages in a job that holds no secret, then a second job, which installs
+  nothing, re-checks the tag against the files (`scripts/release-packages.sh --tag v<version>` prints
+  the channel), publishes the packed tarballs core, browser, react in that order with provenance,
+  and opens a GitHub release carrying `tarjim-browser.iife.js` and its sha384.
+  - Channels: `v0.2.0-alpha.1` publishes to npm dist-tag `alpha`, `v0.2.0-beta.1` to `beta`, plain
+    `v0.2.0` to `latest`. Alpha and beta are GitHub pre-releases. No package release is marked
+    "Latest" on GitHub; that is a deliberate step, like the reference client's.
+  - npm points `latest` at a package's first publish even when it is published with `--tag alpha`
+    (and forbids removing `latest`). Until `0.1.0` ships, a plain `npm install @tarjim/browser` gets
+    that alpha: always install with `@alpha` or `@beta`.
+  - The `NPM_TOKEN` repository secret is a granular npm token for the `tarjim` org with publish
+    rights; the maintainer adds it. Only the three publish steps see it.
+  - A publish that stops half-way (core is out, browser is not) cannot be undone on npm. Do not
+    re-run it: bump the counter (`-alpha.1` to `-alpha.2`, or the patch number for a plain version),
+    and release again.
+  - If every publish step succeeded and only the GitHub release step failed, do not re-run the
+    workflow either (the versions are already on npm). Create the release by hand with
+    `gh release create v<version> --verify-tag --latest=false` (add `--prerelease` for alpha and
+    beta), attaching `tarjim-browser.iife.js` and its `.sha384` from the workflow run's `release`
+    artifact (kept one day).
 
 ## Layout
 
