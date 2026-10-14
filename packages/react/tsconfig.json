@@ -26,6 +26,9 @@
       "@tarjim/core/internal": [
         "../core/src/internal.ts"
       ],
+      "@tarjim/browser/internal": [
+        "../browser/src/internal.ts"
+      ],
       "@tarjim/browser": [
         "../browser/src/index.ts"
       ]

@@ -7,6 +7,7 @@ export default defineConfig({
     alias: [
       { find: '@tarjim/core/internal', replacement: fileURLToPath(new URL('packages/core/src/internal.ts', import.meta.url)) },
       { find: '@tarjim/core', replacement: fileURLToPath(new URL('packages/core/src/index.ts', import.meta.url)) },
+      { find: '@tarjim/browser/internal', replacement: fileURLToPath(new URL('packages/browser/src/internal.ts', import.meta.url)) },
       { find: '@tarjim/browser', replacement: fileURLToPath(new URL('packages/browser/src/index.ts', import.meta.url)) },
     ],
   },

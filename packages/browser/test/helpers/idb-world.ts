@@ -1,6 +1,6 @@
 import { IDBFactory } from 'fake-indexeddb';
-import { DATABASE_NAME, openStore } from '../../src/index.js';
-import type { LockManagerLike } from '../../src/index.js';
+import { DATABASE_NAME, openStore } from '../../src/internal.js';
+import type { LockManagerLike } from '../../src/internal.js';
 import type { Store } from '@tarjim/core';
 import { API_KEY, DELIVERY_URL } from '../../../core/test/helpers/store-contract.js';
 import type { StoreWorld } from '../../../core/test/helpers/store-contract.js';
