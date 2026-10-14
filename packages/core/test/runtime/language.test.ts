@@ -224,6 +224,98 @@ describe('a reload in a language the stored release has no text for yet', () => 
   });
 });
 
+const DAY = 86_400_000;
+
+describe('switching languages before the first release, continued', () => {
+  it('switches at once to a language the page embeds, without waiting for the network', async () => {
+    world = makeWorld(THREE);
+    world.server.hold('meta');
+    const runtime = await world.start({ language: 'en' });
+    const done = runtime.setLanguage('fr');
+    expect(await stillPending(done, 150)).toBe(false);
+    expect(runtime.language).toBe('fr');
+  });
+
+  it('waits for another tab that is fetching the first release, then switches', async () => {
+    world = makeWorld(THREE);
+    const gate = world.server.hold('meta');
+    await world.start({ language: 'en' });
+    await settle(30);
+    const second = await world.start({ language: 'en' });
+    const done = second.setLanguage('de');
+    expect(await stillPending(done, 100)).toBe(true);
+    gate.release();
+    await within(done);
+    expect(second.language).toBe('de');
+  });
+
+  it('applies two calls in order, so the later one wins and is what checks send', async () => {
+    for (const early of [false, true]) {
+      world = makeWorld(THREE);
+      const gate = early ? world.server.hold('meta') : undefined;
+      const runtime = early ? await world.start({ language: 'en' }) : await world.startActive({ language: 'en' });
+      const results = Promise.allSettled([runtime.setLanguage('de'), runtime.setLanguage('fr')]);
+      gate?.release();
+      expect((await within(results)).map((r) => r.status)).toEqual(['fulfilled', 'fulfilled']);
+      await world.timers.advance(2 * DAY);
+      await runtime.checkNow();
+      await settle(30);
+      expect(runtime.language).toBe('fr');
+      expect(queryOf(world.server.requests('meta').slice(-1)[0]!.url)['language']).toBe('fr');
+      world.stopAll();
+    }
+  });
+});
+
+describe('a reload in a language the stored release has no text for yet, continued', () => {
+  it('reads no meta for it, on a platform without timers', async () => {
+    world = makeWorld({ ...THREE, node: true });
+    const first = await world.start({ language: 'en' });
+    await first.checkNow();
+    first.stop();
+    await world.timers.advance(2 * DAY);
+    const metas = world.metaCount();
+    const runtime = await world.start({ language: 'fr' });
+    await until(() => runtime.t('a') === 'v1 b1 fr', 'the French text');
+    expect(world.metaCount()).toBe(metas);
+  });
+
+  it('reads no meta for it while the page is hidden', async () => {
+    world = makeWorld({ ...THREE, hidden: true });
+    world.visibility.set(true);
+    const first = await world.start({ language: 'en' });
+    await until(() => first.t('a') === 'v1 b1 en', 'the first release');
+    first.stop();
+    world.visibility.set(false);
+    await world.timers.advance(2 * DAY);
+    const metas = world.metaCount();
+    await world.start({ language: 'fr' });
+    await settle(60);
+    expect(world.metaCount()).toBe(metas);
+  });
+
+  it('stops waiting when the fetch fails, and serves what is held', async () => {
+    world = makeWorld(THREE);
+    (await world.startActive({ language: 'en' })).stop();
+    world.server.on('object', () => problem(500, 'delivery.server_error'));
+    const start = world.start({ language: 'fr', waitForContent: 3000 });
+    expect(await stillPending(start, 200)).toBe(false);
+  });
+
+  it('takes the text another tab is fetching for it, without stalling', async () => {
+    world = makeWorld(THREE);
+    (await world.startActive({ language: 'en' })).stop();
+    const gate = world.server.hold('object');
+    await world.start({ language: 'fr' });
+    await settle(30);
+    const start = world.start({ language: 'fr', waitForContent: 3000 });
+    await settle(100);
+    gate.release();
+    const runtime = await within(start, 1500);
+    await until(() => runtime.t('a') === 'v1 b1 fr', 'the French text');
+  });
+});
+
 describe('remembering the choice', () => {
   const asRuntime = async (config: Record<string, unknown> = {}): Promise<Tarjim> => {
     const runtime = await world.startActive(config);
