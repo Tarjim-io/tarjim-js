@@ -58,6 +58,11 @@ import { Tarjim } from '@tarjim/browser';
 const tarjim = await Tarjim.start({ /* the same options */ });
 ```
 
+The public API is `Tarjim.start`, the types `TarjimConfig`, `TarjimInstance`, `TarjimEntry`, `TarjimEvent`,
+`TarjimEventType`, `TarjimReport`, `CheckResult`, `BundleRef`, `FormatArgs` and `LookupOptions`, and the
+error classes `TarjimConfigError` and `TarjimLanguageError` (exported as values, so `instanceof` works).
+`@tarjim/browser/internal` is not a public API and may change in any release.
+
 ## Options
 
 | option | |
