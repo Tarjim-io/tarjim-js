@@ -163,6 +163,64 @@ describe('setLanguage', () => {
   });
 });
 
+describe('a language asked for before the text is in', () => {
+  // A page that sets the language from its URL calls setLanguage as soon as it renders, before the
+  // first release has arrived.
+  it('waits for the first release, then switches to the language', async () => {
+    world = makeWorld(THREE);
+    const gate = world.server.hold('meta');
+    const runtime = await world.start({ language: 'en' });
+    // German is only in the release; the page embeds English and French.
+    const done = runtime.setLanguage('de');
+    gate.release();
+
+    await within(done);
+
+    expect(runtime.language).toBe('de');
+    expect(runtime.t('a')).toBe('v1 b1 de');
+  });
+
+  it('still refuses a language the first release does not have', async () => {
+    world = makeWorld(THREE);
+    const gate = world.server.hold('meta');
+    const runtime = await world.start({ language: 'en' });
+    const done = runtime.setLanguage('es');
+    gate.release();
+    await expect(within(done)).rejects.toBeInstanceOf(TarjimLanguageError);
+    expect(runtime.language).toBe('en');
+  });
+
+  it('refuses when no release can be fetched and nothing embedded has the language', async () => {
+    world = makeWorld(THREE);
+    world.server.on('meta', () => problem(500, 'delivery.server_error'));
+    const runtime = await world.start({ language: 'en' });
+    await expect(within(runtime.setLanguage('de'))).rejects.toBeInstanceOf(TarjimLanguageError);
+    expect(runtime.language).toBe('en');
+  });
+});
+
+describe('a reload in a language the stored release has no text for yet', () => {
+  it('fetches that text at once, without waiting for the next check', async () => {
+    world = makeWorld(THREE);
+    (await world.startActive({ language: 'en' })).stop();
+    const metas = world.metaCount();
+
+    const runtime = await world.start({ language: 'fr' });
+
+    await until(() => runtime.t('a') === 'v1 b1 fr', 'the French text');
+    expect(world.metaCount()).toBe(metas);
+  });
+
+  it('is waited for by start, like a first release, up to waitForContent', async () => {
+    world = makeWorld(THREE);
+    (await world.startActive({ language: 'en' })).stop();
+
+    const runtime = await world.start({ language: 'fr', waitForContent: 3000 });
+
+    expect(runtime.t('a')).toBe('v1 b1 fr');
+  });
+});
+
 describe('remembering the choice', () => {
   const asRuntime = async (config: Record<string, unknown> = {}): Promise<Tarjim> => {
     const runtime = await world.startActive(config);
