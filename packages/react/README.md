@@ -14,8 +14,9 @@ Create the config once, outside any component, and wrap the app:
 
 ```tsx
 import { TarjimProvider, useTarjim } from '@tarjim/react';
+import type { TarjimConfig } from '@tarjim/react';
 
-const config = {
+const config: TarjimConfig = {
   deliveryUrl: 'https://…/delivery/meta', // copied from the console
   apiKey: 'YOUR-DELIVERY-KEY', // a key bound to a track and stage
   appVersion: '1.0.0',
@@ -60,6 +61,10 @@ Returns `{ t, tArray, entry, language, setLanguage, checkNow, activatePendingUpd
 - `pendingUpdate` is `true` while a release is downloaded and waiting to be shown.
 
 Outside a `<TarjimProvider>` the hook throws an error that names the provider.
+
+The package also exports the SDK's types (`TarjimConfig`, `TarjimEntry`, `FormatArgs`, `LookupOptions`, `BundleRef`,
+`Slice`, `TarjimReport`, `CheckResult`) and its error classes `TarjimConfigError` and `TarjimLanguageError`, so an app
+needs no direct dependency on `@tarjim/browser`.
 
 ## The four rules
 
