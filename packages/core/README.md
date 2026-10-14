@@ -4,8 +4,10 @@ The runtime behind the Tarjim web SDK: the delivery protocol, hash verification,
 lookups, with no dependency on a browser. A platform supplies storage, timers and `fetch`; most sites
 want [`@tarjim/browser`](../browser), which supplies the browser's.
 
-> **Not yet for customers.** This package is `0.x`, pre-release, and not published to npm yet. Its
-> API can still change between versions.
+> **Not yet for customers.** This package is `0.x` and pre-release, published to npm on the `alpha`
+> and `beta` tags only. Its API can still change between versions. Install it with
+> `npm install @tarjim/core@alpha`; a plain `npm install @tarjim/core` also gets an alpha until
+> `0.1.0` ships.
 
 ## What it exports
 

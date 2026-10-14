@@ -4,25 +4,26 @@ Tarjim translations in a web page: downloads your stage's released text, checks 
 hashes, keeps it in the browser and answers lookups. It also builds the script-tag file
 `tarjim-browser.iife.js`, which puts one global, `Tarjim`, on the page.
 
-> **Not yet for customers.** This package is `0.x`, pre-release, and not published to npm yet. Its
-> API can still change between versions. To try it, build it from this repository.
+> **Not yet for customers.** This package is `0.x` and pre-release, published to npm on the `alpha`
+> and `beta` tags only. Its API can still change between versions. Install it with
+> `npm install @tarjim/browser@alpha`; a plain `npm install @tarjim/browser` also gets an alpha until
+> `0.1.0` ships.
 
 The runtime itself lives in [`@tarjim/core`](../core); this package supplies the browser's storage,
 timers and tab coordination.
 
 ## Use it from a script tag
 
-```
-pnpm install
-pnpm build
-```
-
-This writes `packages/browser/dist/tarjim-browser.iife.js`. Self-host it: copy it next to your page
-and load it with its integrity hash, never from a public CDN URL.
+Every release on [GitHub](https://github.com/Tarjim-io/tarjim-js/releases) carries
+`tarjim-browser.iife.js` and `tarjim-browser.iife.js.sha384`, its integrity value. The same file is in
+the npm package, at `dist/tarjim-browser.iife.js`. Self-host it: copy it next to your page and load it
+with its integrity value, never from a public CDN URL. To compute the value yourself:
 
 ```
-node scripts/sri.mjs packages/browser/dist/tarjim-browser.iife.js
+openssl dgst -sha384 -binary tarjim-browser.iife.js | openssl base64 -A
 ```
+
+Prefix the output with `sha384-`.
 
 ```html
 <script src="tarjim-browser.iife.js" integrity="sha384-…" crossorigin="anonymous"></script>
