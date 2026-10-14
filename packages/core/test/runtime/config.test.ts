@@ -251,3 +251,39 @@ describe('the platform and configuration wiring', () => {
     expect(off.t('hi', { name: 'Z' })).not.toBe('Hi Z');
   });
 });
+
+describe('keyCase', () => {
+  it("applies 'lower' to lookups in embedded text", async () => {
+    world = makeWorld();
+    const runtime = await world.start({ keyCase: 'lower', embedded: [embedded('en', { 'Mixed.Key': { id: '903', value: 'mixed', tags: [] } })] });
+    expect(runtime.t('MIXED.KEY')).toBe('mixed');
+    expect(runtime.t('A')).toBe('embedded a');
+  });
+
+  it("applies 'lower' to lookups in downloaded text", async () => {
+    world = makeWorld();
+    const runtime = await world.startActive({ keyCase: 'lower' });
+    expect(runtime.t('A')).toBe(runtime.t('a'));
+    expect(runtime.t('A')).not.toMatch(/^(A|embedded a)$/);
+  });
+
+  it('matches exactly when keyCase is left out', async () => {
+    world = makeWorld();
+    const runtime = await world.start();
+    expect(runtime.t('a')).toBe('embedded a');
+    expect(runtime.t('A')).toBe('A');
+  });
+
+  it('rejects an unknown keyCase in strict mode', async () => {
+    world = makeWorld();
+    await expect(world.start({ strict: true, keyCase: 'upper' })).rejects.toBeInstanceOf(TarjimConfigError);
+  });
+
+  it('treats an unknown keyCase as exact without strict, and keeps serving', async () => {
+    world = makeWorld();
+    const runtime = await world.start({ keyCase: 'upper' });
+    expect(runtime.t('a')).toBe('embedded a');
+    expect(runtime.t('A')).toBe('A');
+    expect(world.reports).toEqual([]);
+  });
+});
