@@ -1,6 +1,6 @@
 {
   "name": "@tarjim/browser",
-  "version": "0.1.0-alpha.2",
+  "version": "0.1.0-alpha.3",
   "description": "The browser half of the Tarjim web SDK: storage, cross-tab locking and the script-tag build.",
   "license": "MIT",
   "keywords": ["tarjim", "i18n", "translations"],
