@@ -91,6 +91,9 @@ npm install @tarjim/browser@alpha
 npm install @tarjim/browser@beta
 ```
 
+Always install with `@alpha` or `@beta`. npm points the `latest` tag at a package's first publish,
+so until `0.1.0` ships a plain `npm install @tarjim/browser` also gets an alpha.
+
 To build them from this repository instead, run `pnpm install && pnpm build`.
 
 | package | |
