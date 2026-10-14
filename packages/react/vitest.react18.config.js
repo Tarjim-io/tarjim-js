@@ -12,6 +12,7 @@ export default defineConfig({
     alias: [
       { find: '@tarjim/core/internal', replacement: root('../core/src/internal.ts') },
       { find: '@tarjim/core', replacement: root('../core/src/index.ts') },
+      { find: '@tarjim/browser/internal', replacement: root('../browser/src/internal.ts') },
       { find: '@tarjim/browser', replacement: root('../browser/src/index.ts') },
       // Its CommonJS build would load React with a plain require, past the aliases below; the ES module build imports it.
       { find: /^@testing-library\/react$/, replacement: root('./node_modules/@testing-library/react/dist/@testing-library/react.esm.js') },

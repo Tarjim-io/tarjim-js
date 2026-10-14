@@ -42,6 +42,13 @@ jobs:
           node --input-type=module -e "import('@tarjim/core/internal').then((m) => { if (typeof m.createDeliveryClient !== 'function') process.exit(1) })"
           node -e "if (typeof require('@tarjim/core/internal').createDeliveryClient !== 'function') process.exit(1)"
         working-directory: packages/core
+      - name: The built browser package loads as ESM and as CommonJS
+        run: |
+          node --input-type=module -e "import('@tarjim/browser').then((m) => { if (typeof m.Tarjim.start !== 'function') process.exit(1) })"
+          node -e "if (typeof require('@tarjim/browser').Tarjim.start !== 'function') process.exit(1)"
+          node --input-type=module -e "import('@tarjim/browser/internal').then((m) => { if (typeof m.openStore !== 'function') process.exit(1) })"
+          node -e "if (typeof require('@tarjim/browser/internal').openStore !== 'function') process.exit(1)"
+        working-directory: packages/browser
 
   browser:
     name: browser (${{ matrix.browser }})

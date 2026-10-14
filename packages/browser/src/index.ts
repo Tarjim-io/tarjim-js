@@ -1,5 +1,14 @@
-export { DATABASE_NAME, IndexedDbStore } from './indexeddb-store.js';
-export type { LockManagerLike } from './indexeddb-store.js';
-export { openStore } from './open-store.js';
-export type { OpenStoreOptions, OpenedStore } from './open-store.js';
-export { Tarjim, browserPlatform } from './tarjim.js';
+export { Tarjim } from './tarjim.js';
+export { TarjimConfigError, TarjimLanguageError } from '@tarjim/core';
+export type {
+  BundleRef,
+  CheckResult,
+  FormatArgs,
+  LookupOptions,
+  Tarjim as TarjimInstance,
+  TarjimConfig,
+  TarjimEntry,
+  TarjimEvent,
+  TarjimEventType,
+  TarjimReport,
+} from '@tarjim/core';

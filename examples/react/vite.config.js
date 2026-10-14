@@ -11,6 +11,7 @@ export default defineConfig({
     alias: [
       { find: '@tarjim/core/internal', replacement: source('../../packages/core/src/internal.ts') },
       { find: '@tarjim/core', replacement: source('../../packages/core/src/index.ts') },
+      { find: '@tarjim/browser/internal', replacement: source('../../packages/browser/src/internal.ts') },
       { find: '@tarjim/browser', replacement: source('../../packages/browser/src/index.ts') },
       { find: '@tarjim/react', replacement: source('../../packages/react/src/index.ts') },
     ],
