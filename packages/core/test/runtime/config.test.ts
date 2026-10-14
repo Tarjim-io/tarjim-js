@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { TarjimConfigError } from '../../src/index.js';
+import { TarjimConfigError, createRuntime } from '../../src/index.js';
 import { API_KEY, embedded, makeWorld, settle, until, within } from './world.js';
 
 let world = makeWorld();
@@ -272,6 +272,16 @@ describe('keyCase', () => {
     const runtime = await world.start();
     expect(runtime.t('a')).toBe('embedded a');
     expect(runtime.t('A')).toBe('A');
+  });
+
+  it('reads keyCase once, at start', async () => {
+    world = makeWorld();
+    const config = world.config({ keyCase: 'exact' });
+    const runtime = await createRuntime(config, world.platform());
+    (config as { keyCase: string }).keyCase = 'lower';
+    await runtime.setLanguage('fr');
+    expect(runtime.t('A')).toBe('A');
+    runtime.stop();
   });
 
   it('rejects an unknown keyCase in strict mode', async () => {

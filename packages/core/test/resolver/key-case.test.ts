@@ -46,6 +46,14 @@ describe("keyCase: 'lower'", () => {
     expect(snapshot.t('CANCEL')).toBe('first');
   });
 
+  // Lowercasing "<key>" and then adding ".one" is not always lowercasing "<key>.one": a final capital
+  // sigma becomes ς at the end of a word and σ inside one.
+  it('picks plural forms for a key whose lowercase depends on what follows it', () => {
+    const snapshot = snapshotWith(pluralKeys('ΟΔΟΣ', 1, { one: 'one road', other: '%d roads' }), lower);
+    expect(snapshot.t('ΟΔΟΣ', { count: 1 })).toBe('one road');
+    expect(snapshot.t('οδος', { count: 2 })).toBe('2 roads');
+  });
+
   it('lowercases letters outside ASCII', () => {
     expect(snapshotWith({ 'ÉCOLE': leaf(1, 'school') }, lower).t('école')).toBe('school');
   });
