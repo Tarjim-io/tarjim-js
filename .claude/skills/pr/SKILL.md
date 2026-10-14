@@ -10,8 +10,9 @@ and what was actually run — not a list of files or commits.
 
 ## Before pushing
 
-1. `scripts/secret-scan.sh` passes (keys, signatures; CI runs it too) and `pnpm test` passes (its leak
-   scan covers fixtures). Then check hosts and private references in the diff:
+1. `scripts/secret-scan.sh` passes (keys, signatures, Tarjim, CloudFront and AWS hosts, ticket ids; CI
+   runs it too) and `pnpm test` passes (its leak scan covers fixtures). The scan cannot know every
+   private name, so also check the diff for other hosts and private references:
    `git diff origin/main...HEAD -- . ':!test/fixtures' ':!test/fixtures.test.js' ':!scripts' ':!CLAUDE.md' ':!.claude' | grep -E '^\+' | grep -niE 'staging|cloudfront\.net|amazonaws|\.env'`
    and the same diff piped to `grep -nE '\b[A-Z]{2,}-[0-9]{2,}\b'` (ticket ids, case-sensitive) must
    print nothing. Hosts other than `*.invalid`, `example.com` and `api.tarjim.io` are a leak.
