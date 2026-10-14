@@ -27,6 +27,8 @@ self-hosted by the site that uses it. MIT licensed. Versions stay `0.x` until th
   - Channels: `v0.2.0-alpha.1` publishes to npm dist-tag `alpha`, `v0.2.0-beta.1` to `beta`, plain
     `v0.2.0` to `latest`. Alpha and beta are GitHub pre-releases. No package release is marked
     "Latest" on GitHub; that is a deliberate step, like the reference client's.
+  - Only admins can push `v*` and `reference-v*` tags (a tag ruleset), and `main` takes changes only
+    through a pull request with green CI (a branch ruleset), so the "tag is on main" check means reviewed code.
   - npm points `latest` at a package's first publish even when it is published with `--tag alpha`
     (and forbids removing `latest`). Until `0.1.0` ships, a plain `npm install @tarjim/browser` gets
     that alpha: always install with `@alpha` or `@beta`.
