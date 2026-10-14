@@ -214,3 +214,103 @@ describe('publishable packages', () => {
     }
   });
 });
+
+// The workflow is read as text: the repository has no YAML parser, and the layout (jobs at two
+// spaces, steps at six) is fixed by the file itself.
+const workflowText = () => readFileSync(WORKFLOW, 'utf8');
+
+function jobBlock(name) {
+  const jobs = workflowText().split(/^jobs:\n/m)[1];
+  const match = new RegExp(`^  ${name}:\\n((?:(?:    .*)?\\n)*)`, 'm').exec(jobs);
+  if (!match) throw new Error(`no job named ${name}`);
+  return match[1];
+}
+
+const stepsOf = (job) => job.split(/^(?=      - )/m).filter((step) => step.startsWith('      - '));
+const jobPermissions = (job) => /^    permissions:\n((?:      .*\n)+)/m.exec(job)?.[1].trim().split('\n').map((l) => l.trim());
+
+describe('the release workflow keeps a failed check from publishing', () => {
+  it('never assigns a step output from a command substitution inside echo', () => {
+    // `echo "x=$(cmd)"` exits with echo's status, so a failing cmd would not stop the step.
+    expect(workflowText()).not.toMatch(/echo\s+"[^"\n]*=\$\(/);
+  });
+
+  it('captures the channel on a line of its own, before writing it to the output', () => {
+    const run = stepsOf(jobBlock('publish')).find((step) => /release-packages\.sh/.test(step));
+    expect(run).toMatch(/^\s*channel="\$\(scripts\/release-packages\.sh --tag "\$GITHUB_REF_NAME"\)"\s*$/m);
+    expect(run).toMatch(/echo "channel=\$channel" >> "\$GITHUB_OUTPUT"/);
+  });
+
+  it('checks the channel again in every publish step', () => {
+    const publishes = stepsOf(jobBlock('publish')).filter((step) => /\bnpm publish/.test(step));
+    expect(publishes).toHaveLength(3);
+    for (const step of publishes) expect(step).toContain('[[ "$CHANNEL" =~ ^(alpha|beta|latest)$ ]]');
+  });
+});
+
+describe('the release workflow separates the code it runs from the secrets it holds', () => {
+  const PINNED = {
+    upload: 'actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a',
+    download: 'actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c',
+  };
+
+  it('gives the test job no secret and only read access', () => {
+    const job = jobBlock('test');
+    expect(job).not.toContain('secrets.');
+    expect(workflowText()).toMatch(/^permissions:\n  contents: read\n/m);
+    expect(jobPermissions(job) ?? ['contents: read']).toEqual(['contents: read']);
+  });
+
+  it('packs the tarballs and the script-tag file with its sri in the test job and uploads them', () => {
+    const job = jobBlock('test');
+    expect(job).toContain(`for name in ${PACKAGES.join(' ')}; do`);
+    expect(job).toContain('pnpm --dir "packages/$name" pack --pack-destination ../../release');
+    expect(job).toContain('tarjim-browser.iife.js');
+    expect(job).toMatch(/node scripts\/sri\.mjs .*>.*tarjim-browser\.iife\.js\.sha384/);
+    expect(job).toContain(`${PINNED.upload} # v7.0.1`);
+    expect(job).toMatch(/retention-days: 1\b/);
+  });
+
+  it('installs and builds nothing in the publish job', () => {
+    const job = jobBlock('publish');
+    expect(job).not.toMatch(/pnpm|npx|\bnode scripts\/|npm (install|ci|run|exec|test)|cache:/);
+    const scripts = job.match(/scripts\/[\w./-]+/g) ?? [];
+    expect(scripts.filter((s) => s !== 'scripts/release-packages.sh')).toEqual([]);
+  });
+
+  it('downloads the test job output with the pinned action', () => {
+    expect(jobBlock('publish')).toContain(`${PINNED.download} # v8.0.1`);
+  });
+
+  it('publishes the three tarballs in dependency order with provenance', () => {
+    const publishes = stepsOf(jobBlock('publish')).filter((step) => /\bnpm publish/.test(step));
+    const commands = publishes.map((step) => /\bnpm publish (\S+)(.*)/.exec(step));
+    expect(commands.map((c) => c[1])).toEqual(
+      ['core', 'browser', 'react'].map((name) => `release/tarjim-${name}-$VERSION.tgz`),
+    );
+    for (const c of commands) expect(c[2]).toBe(' --provenance --access public --tag "$CHANNEL"');
+  });
+
+  it('checks the tarball versions against the tag before the first publish', () => {
+    const steps = stepsOf(jobBlock('publish'));
+    const check = steps.findIndex((step) => /tar -xzOf/.test(step));
+    const firstPublish = steps.findIndex((step) => /\bnpm publish/.test(step));
+    expect(check).toBeGreaterThan(-1);
+    expect(check).toBeLessThan(firstPublish);
+    expect(steps[check]).toContain('VERSION: ${{ steps.channel.outputs.version }}');
+  });
+
+  it('exposes the npm token only to the publish steps', () => {
+    const holders = stepsOf(workflowText()).filter((step) => step.includes('secrets.'));
+    expect(holders).toHaveLength(3);
+    for (const step of holders) {
+      expect(step).toMatch(/\bnpm publish/);
+      expect(step).toMatch(/^ {10}NODE_AUTH_TOKEN: \$\{\{ secrets\.NPM_TOKEN \}\}$/m);
+    }
+  });
+
+  it('creates the GitHub release without the Latest badge', () => {
+    const create = stepsOf(jobBlock('publish')).find((step) => /gh release create/.test(step));
+    expect(create).toMatch(/--latest=false/);
+  });
+});

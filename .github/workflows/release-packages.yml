@@ -13,7 +13,9 @@ permissions:
   contents: read
 
 jobs:
-  # Runs the dependency tree, so it gets no write token and no npm token.
+  # Runs the dependency tree, so it gets no write token and no npm token: a compromised dev
+  # dependency must not be able to publish or replace a release asset. It hands the publish job
+  # finished files and nothing else.
   test:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -32,11 +34,30 @@ jobs:
       - run: pnpm test
       - run: pnpm size
       - run: scripts/secret-scan.sh
+      # pnpm rewrites the workspace:* dependencies to the exact version when it packs.
+      - name: Pack the packages and the script-tag file
+        run: |
+          set -euo pipefail
+          mkdir release
+          for name in core browser react; do
+            pnpm --dir "packages/$name" pack --pack-destination ../../release
+          done
+          cp packages/browser/dist/tarjim-browser.iife.js release/
+          node scripts/sri.mjs release/tarjim-browser.iife.js > release/tarjim-browser.iife.js.sha384
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release
+          path: release/
+          retention-days: 1
+          if-no-files-found: error
 
+  # Installs and builds nothing: it holds the npm token and the write token, so the only code it
+  # runs is npm, gh, shell and scripts/release-packages.sh. Publishing a tarball runs no lifecycle
+  # scripts.
   publish:
     needs: test
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 10
     permissions:
       contents: write
       id-token: write
@@ -49,54 +70,73 @@ jobs:
         run: git merge-base --is-ancestor "$GITHUB_SHA" origin/main
       - name: The tag matches every package version
         id: channel
-        run: echo "channel=$(scripts/release-packages.sh --tag "$GITHUB_REF_NAME")" >> "$GITHUB_OUTPUT"
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        run: |
+          set -euo pipefail
+          channel="$(scripts/release-packages.sh --tag "$GITHUB_REF_NAME")"
+          echo "channel=$channel" >> "$GITHUB_OUTPUT"
+          echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release
+          path: release
+      - name: The tarballs carry the tag's version
+        run: |
+          set -euo pipefail
+          [[ "$(find release -name '*.tgz' | wc -l)" -eq 3 ]] || { echo "[ERROR] expected exactly three tarballs" >&2; exit 1; }
+          for name in core browser react; do
+            tar -xzOf "release/tarjim-$name-$VERSION.tgz" package/package.json | grep -qF "\"version\": \"$VERSION\""
+          done
+        env:
+          VERSION: ${{ steps.channel.outputs.version }}
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "22"
-          cache: pnpm
           registry-url: https://registry.npmjs.org
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm build
       # One step per package, in dependency order. A publish cannot be undone, so the first failure
       # stops the run (see CLAUDE.md for recovering from a half-finished release).
       - name: Publish @tarjim/core
-        run: pnpm publish --access public --tag "$CHANNEL" --no-git-checks
-        working-directory: packages/core
+        run: |
+          set -euo pipefail
+          [[ "$CHANNEL" =~ ^(alpha|beta|latest)$ ]] || { echo "[ERROR] unexpected channel" >&2; exit 1; }
+          npm publish release/tarjim-core-$VERSION.tgz --provenance --access public --tag "$CHANNEL"
         env:
           CHANNEL: ${{ steps.channel.outputs.channel }}
+          VERSION: ${{ steps.channel.outputs.version }}
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-          NPM_CONFIG_PROVENANCE: true
       - name: Publish @tarjim/browser
-        run: pnpm publish --access public --tag "$CHANNEL" --no-git-checks
-        working-directory: packages/browser
+        run: |
+          set -euo pipefail
+          [[ "$CHANNEL" =~ ^(alpha|beta|latest)$ ]] || { echo "[ERROR] unexpected channel" >&2; exit 1; }
+          npm publish release/tarjim-browser-$VERSION.tgz --provenance --access public --tag "$CHANNEL"
         env:
           CHANNEL: ${{ steps.channel.outputs.channel }}
+          VERSION: ${{ steps.channel.outputs.version }}
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-          NPM_CONFIG_PROVENANCE: true
       - name: Publish @tarjim/react
-        run: pnpm publish --access public --tag "$CHANNEL" --no-git-checks
-        working-directory: packages/react
+        run: |
+          set -euo pipefail
+          [[ "$CHANNEL" =~ ^(alpha|beta|latest)$ ]] || { echo "[ERROR] unexpected channel" >&2; exit 1; }
+          npm publish release/tarjim-react-$VERSION.tgz --provenance --access public --tag "$CHANNEL"
         env:
           CHANNEL: ${{ steps.channel.outputs.channel }}
+          VERSION: ${{ steps.channel.outputs.version }}
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-          NPM_CONFIG_PROVENANCE: true
+      # Not the "Latest" release: that badge is a deliberate, separate step, as for the reference client.
       - name: The GitHub release
         run: |
           set -euo pipefail
-          mkdir release
-          cp packages/browser/dist/tarjim-browser.iife.js release/
-          node scripts/sri.mjs release/tarjim-browser.iife.js > release/tarjim-browser.iife.js.sha384
+          [[ "$CHANNEL" =~ ^(alpha|beta|latest)$ ]] || { echo "[ERROR] unexpected channel" >&2; exit 1; }
+          notes="$RUNNER_TEMP/notes.md"
           sri="$(cat release/tarjim-browser.iife.js.sha384)"
-          args=(--verify-tag --title "$GITHUB_REF_NAME" --notes-file release/notes.md)
+          args=(--verify-tag --latest=false --title "$GITHUB_REF_NAME" --notes-file "$notes")
           if [[ "$CHANNEL" == "latest" ]]; then
             warning=""
           else
             args+=(--prerelease)
             warning="**Pre-release on the \`$CHANNEL\` channel: not yet for customers.** Internal testing only."$'\n\n'
           fi
-          cat >release/notes.md <<NOTES
-          ${warning}Packages \`@tarjim/core\`, \`@tarjim/browser\` and \`@tarjim/react\` at ${GITHUB_REF_NAME#v}, published to npm under the \`$CHANNEL\` dist-tag.
+          cat >"$notes" <<NOTES
+          ${warning}Packages \`@tarjim/core\`, \`@tarjim/browser\` and \`@tarjim/react\` at $VERSION, published to npm under the \`$CHANNEL\` dist-tag.
 
           Subresource integrity of \`tarjim-browser.iife.js\`:
 
@@ -107,4 +147,5 @@ jobs:
           gh release create "$GITHUB_REF_NAME" "${args[@]}" release/tarjim-browser.iife.js release/tarjim-browser.iife.js.sha384
         env:
           CHANNEL: ${{ steps.channel.outputs.channel }}
+          VERSION: ${{ steps.channel.outputs.version }}
           GH_TOKEN: ${{ github.token }}
