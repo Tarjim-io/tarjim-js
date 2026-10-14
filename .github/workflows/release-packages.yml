@@ -98,7 +98,7 @@ jobs:
         run: |
           set -euo pipefail
           [[ "$CHANNEL" =~ ^(alpha|beta|latest)$ ]] || { echo "[ERROR] unexpected channel" >&2; exit 1; }
-          npm publish release/tarjim-core-$VERSION.tgz --provenance --access public --tag "$CHANNEL"
+          npm publish ./release/tarjim-core-$VERSION.tgz --provenance --access public --tag "$CHANNEL"
         env:
           CHANNEL: ${{ steps.channel.outputs.channel }}
           VERSION: ${{ steps.channel.outputs.version }}
@@ -107,7 +107,7 @@ jobs:
         run: |
           set -euo pipefail
           [[ "$CHANNEL" =~ ^(alpha|beta|latest)$ ]] || { echo "[ERROR] unexpected channel" >&2; exit 1; }
-          npm publish release/tarjim-browser-$VERSION.tgz --provenance --access public --tag "$CHANNEL"
+          npm publish ./release/tarjim-browser-$VERSION.tgz --provenance --access public --tag "$CHANNEL"
         env:
           CHANNEL: ${{ steps.channel.outputs.channel }}
           VERSION: ${{ steps.channel.outputs.version }}
@@ -116,7 +116,7 @@ jobs:
         run: |
           set -euo pipefail
           [[ "$CHANNEL" =~ ^(alpha|beta|latest)$ ]] || { echo "[ERROR] unexpected channel" >&2; exit 1; }
-          npm publish release/tarjim-react-$VERSION.tgz --provenance --access public --tag "$CHANNEL"
+          npm publish ./release/tarjim-react-$VERSION.tgz --provenance --access public --tag "$CHANNEL"
         env:
           CHANNEL: ${{ steps.channel.outputs.channel }}
           VERSION: ${{ steps.channel.outputs.version }}
