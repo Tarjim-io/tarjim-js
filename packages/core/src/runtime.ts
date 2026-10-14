@@ -72,8 +72,13 @@ export interface Tarjim {
   stop(): void;
 }
 
-export class TarjimConfigError extends Error {}
-export class TarjimLanguageError extends Error {}
+// Literal names: a minifier renames classes, so `constructor.name` would not survive the script-tag build.
+export class TarjimConfigError extends Error {
+  override name = 'TarjimConfigError';
+}
+export class TarjimLanguageError extends Error {
+  override name = 'TarjimLanguageError';
+}
 
 /** What the runtime needs from its environment; @tarjim/browser supplies the browser's. */
 export interface Platform {
