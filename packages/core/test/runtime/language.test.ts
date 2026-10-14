@@ -172,6 +172,9 @@ describe('a language asked for before the text is in', () => {
     const runtime = await world.start({ language: 'en' });
     // German is only in the release; the page embeds English and French.
     const done = runtime.setLanguage('de');
+    // Nothing is decided until the check answers: the call waits, and the language stays.
+    expect(await stillPending(done)).toBe(true);
+    expect(runtime.language).toBe('en');
     gate.release();
 
     await within(done);
