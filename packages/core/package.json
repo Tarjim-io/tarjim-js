@@ -1,6 +1,6 @@
 {
   "name": "@tarjim/core",
-  "version": "0.1.0",
+  "version": "0.1.0-alpha.1",
   "description": "The runtime-agnostic core of the Tarjim web SDK: delivery protocol, verification and lookups.",
   "license": "MIT",
   "keywords": ["tarjim", "i18n", "translations"],

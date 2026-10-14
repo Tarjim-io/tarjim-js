@@ -1,6 +1,6 @@
 {
   "name": "@tarjim/react",
-  "version": "0.1.0",
+  "version": "0.1.0-alpha.1",
   "description": "React bindings for the Tarjim web SDK: a provider and a hook.",
   "license": "MIT",
   "keywords": ["tarjim", "i18n", "translations"],
