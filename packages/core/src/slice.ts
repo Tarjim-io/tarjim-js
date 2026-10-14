@@ -54,13 +54,17 @@ function decodeLeaf(raw: unknown): Leaf | null {
   return leaf;
 }
 
+// Final and medial sigma are both the lowercase of Σ, and which one toLowerCase gives depends on what
+// follows it, so "ΟΔΟΣ" and "ΟΔΟΣ.one" would otherwise fold to names that no longer share a prefix.
+export const foldKey = (key: string): string => key.toLowerCase().replace(/ς/g, 'σ');
+
 function decodeLeaves(raw: unknown, lower: boolean): Map<string, Leaf> {
   const leaves = new Map<string, Leaf>();
   if (!isRecord(raw)) return leaves;
   for (const [key, value] of Object.entries(raw)) {
     const leaf = decodeLeaf(value);
     // Names that fold together keep the first one in the file, so a clash resolves the same way every time.
-    const name = lower ? key.toLowerCase() : key;
+    const name = lower ? foldKey(key) : key;
     if (leaf && !leaves.has(name)) leaves.set(name, leaf);
   }
   return leaves;

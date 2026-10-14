@@ -1,6 +1,6 @@
 import { isRecord, parseJson } from './json.js';
 import { localeKey } from './locale.js';
-import { decodeSlice } from './slice.js';
+import { decodeSlice, foldKey } from './slice.js';
 import type { DecodedSlice, Leaf, Slice } from './slice.js';
 import { slotName } from './store.js';
 import type { Install } from './store.js';
@@ -245,7 +245,7 @@ function serve(input: SnapshotInput, defaultKey: string, report: Report): Map<st
 
 export function createSnapshot(input: SnapshotInput): Snapshot {
   const { locale, legacyPercentPlaceholders = false } = input;
-  const fold = (key: string): string => (input.keyCase === 'lower' ? key.toLowerCase() : key);
+  const fold = (key: string): string => (input.keyCase === 'lower' ? foldKey(key) : key);
   const reporter = input.report;
   const report: Report = (found) => {
     try {
