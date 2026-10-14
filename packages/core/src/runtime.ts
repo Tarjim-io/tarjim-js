@@ -444,7 +444,11 @@ export async function createRuntime(given: TarjimConfig, platform: Platform): Pr
       ...(visibility ? { visibility } : {}),
     });
   }
-  const waiting = scheduler !== undefined && !activeInstall;
+  const lacks = (install: Install, locale: string): boolean =>
+    [...wantedSlots(install.manifest, locale).keys()].some((slot) => install.slots[slot] === undefined);
+  // A held release with no text for this language yet: its files are fetched now, not at the next check.
+  const lacking = live !== undefined && activeInstall !== undefined && lacks(activeInstall, target);
+  const waiting = scheduler !== undefined && (!activeInstall || lacking);
   if (!waiting) firstDone();
   if (scheduler && toOwe.length) {
     // An unreadable file is worth a check now, though a backoff still holds it off.
@@ -455,11 +459,10 @@ export async function createRuntime(given: TarjimConfig, platform: Platform): Pr
     });
   } else await markOwed();
   scheduler?.start();
+  if (lacking) void run('scheduled');
   if (waiting) await timeout;
 
   const persist = config.persistLanguage ?? config.language === undefined;
-  const lacks = (install: Install, locale: string): boolean =>
-    [...wantedSlots(install.manifest, locale).keys()].some((slot) => install.slots[slot] === undefined);
 
   return {
     get language() {
@@ -477,6 +480,9 @@ export async function createRuntime(given: TarjimConfig, platform: Platform): Pr
     },
 
     async setLanguage(language) {
+      // Called before the first release is in, as a page that takes its language from the URL does:
+      // that release decides which languages exist.
+      if (!activeInstall && live) await (inflight ?? run('scheduled'));
       const match = typeof language === 'string' ? matchLocale(language, localesOf(activeInstall)) : null;
       if (match === null) throw new TarjimLanguageError('There is no text for that language.');
       if (match === current.snapshot.language) return;
