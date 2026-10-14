@@ -301,13 +301,21 @@ describe('the release workflow separates the code it runs from the secrets it ho
     expect(steps[check]).toContain('VERSION: ${{ steps.channel.outputs.version }}');
   });
 
-  it('exposes the npm token only to the publish steps', () => {
-    const holders = stepsOf(workflowText()).filter((step) => step.includes('secrets.'));
-    expect(holders).toHaveLength(3);
-    for (const step of holders) {
-      expect(step).toMatch(/\bnpm publish/);
-      expect(step).toMatch(/^ {10}NODE_AUTH_TOKEN: \$\{\{ secrets\.NPM_TOKEN \}\}$/m);
-    }
+  it('holds no npm token anywhere: publishing authenticates through trusted publishing', () => {
+    expect(workflowText()).not.toContain('NPM_TOKEN');
+    expect(workflowText()).not.toContain('NODE_AUTH_TOKEN');
+    expect(stepsOf(workflowText()).filter((step) => step.includes('secrets.'))).toEqual([]);
+  });
+
+  it('runs the publish job on a node whose npm can publish through trusted publishing', () => {
+    // Trusted publishing needs npm 11.5.1 or newer; node 22 ships npm 10.
+    const setup = stepsOf(jobBlock('publish')).find((step) => step.includes('actions/setup-node@'));
+    expect(setup).toMatch(/^ {10}node-version: "24"$/m);
+  });
+
+  it('gives the publish job the identity token it exchanges for npm access', () => {
+    expect(jobPermissions(jobBlock('publish'))).toContain('id-token: write');
+    expect(jobPermissions(jobBlock('test')) ?? []).not.toContain('id-token: write');
   });
 
   it('creates the GitHub release without the Latest badge', () => {

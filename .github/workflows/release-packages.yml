@@ -13,7 +13,7 @@ permissions:
   contents: read
 
 jobs:
-  # Runs the dependency tree, so it gets no write token and no npm token: a compromised dev
+  # Runs the dependency tree, so it gets no write token and no OIDC identity: a compromised dev
   # dependency must not be able to publish or replace a release asset. It hands the publish job
   # finished files and nothing else.
   test:
@@ -51,9 +51,10 @@ jobs:
           retention-days: 1
           if-no-files-found: error
 
-  # Installs and builds nothing: it holds the npm token and the write token, so the only code it
+  # Installs and builds nothing: it can publish and holds the write token, so the only code it
   # runs is npm, gh, shell and scripts/release-packages.sh. Publishing a tarball runs no lifecycle
-  # scripts.
+  # scripts. It authenticates to npm with a short-lived OIDC identity bound to this repository and
+  # workflow (npm trusted publishing); there is no npm token to leak.
   publish:
     needs: test
     runs-on: ubuntu-24.04
@@ -88,9 +89,10 @@ jobs:
           done
         env:
           VERSION: ${{ steps.channel.outputs.version }}
+      # Trusted publishing needs npm 11.5.1 or newer; node 22 ships npm 10, node 24 ships npm 11.
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: "22"
+          node-version: "24"
           registry-url: https://registry.npmjs.org
       # One step per package, in dependency order. A publish cannot be undone, so the first failure
       # stops the run (see CLAUDE.md for recovering from a half-finished release).
@@ -102,7 +104,6 @@ jobs:
         env:
           CHANNEL: ${{ steps.channel.outputs.channel }}
           VERSION: ${{ steps.channel.outputs.version }}
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
       - name: Publish @tarjim/browser
         run: |
           set -euo pipefail
@@ -111,7 +112,6 @@ jobs:
         env:
           CHANNEL: ${{ steps.channel.outputs.channel }}
           VERSION: ${{ steps.channel.outputs.version }}
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
       - name: Publish @tarjim/react
         run: |
           set -euo pipefail
@@ -120,7 +120,6 @@ jobs:
         env:
           CHANNEL: ${{ steps.channel.outputs.channel }}
           VERSION: ${{ steps.channel.outputs.version }}
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
       # Not the "Latest" release: that badge is a deliberate, separate step, as for the reference client.
       - name: The GitHub release
         run: |
