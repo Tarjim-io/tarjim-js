@@ -316,6 +316,40 @@ describe('a reload in a language the stored release has no text for yet, continu
   });
 });
 
+describe('the first release and an early switch, round two', () => {
+  it('waits for a regional language only the release has, not the embedded base language', async () => {
+    world = makeWorld({ release: { locales: ['en', 'fr-CA'] } });
+    const gate = world.server.hold('meta');
+    const runtime = await world.start({ language: 'en' });
+    const done = runtime.setLanguage('fr-CA');
+    gate.release();
+    await within(done);
+    expect(runtime.language).toBe('fr-CA');
+  });
+
+  it('fetches the files of a language chosen while the first release was on its way', async () => {
+    world = makeWorld(THREE);
+    const gate = world.server.hold('manifest');
+    const runtime = await world.start({ language: 'en' });
+    await settle(30);
+    await within(runtime.setLanguage('fr'));
+    gate.release();
+    await until(() => runtime.t('a') === 'v1 b1 fr', 'the French text from the release', 1500);
+  });
+
+  it('says activated when the fetched text of a missing language replaces what start showed', async () => {
+    world = makeWorld(THREE);
+    (await world.startActive({ language: 'en' })).stop();
+    const gate = world.server.hold('object');
+    const runtime = await world.start({ language: 'fr' });
+    const seen: string[] = [];
+    runtime.on('activated', (event) => seen.push(event.type));
+    gate.release();
+    await until(() => runtime.t('a') === 'v1 b1 fr', 'the French text');
+    expect(seen).toEqual(['activated']);
+  });
+});
+
 describe('remembering the choice', () => {
   const asRuntime = async (config: Record<string, unknown> = {}): Promise<Tarjim> => {
     const runtime = await world.startActive(config);
