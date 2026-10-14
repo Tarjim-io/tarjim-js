@@ -31,6 +31,7 @@ tarjim.t('app.title');
 | `__T(key, { namespace, mappings, subkey, skipTid, SEO })`, which returns a string or a `<span data-tid>` | `t(key, args?, { bundle?, namespace? })`, which always returns a string. There is no `<span>`. A value is untrusted text: if it may contain HTML, sanitising and rendering it is up to your page. |
 | `__TS(key)` | `t(key)` |
 | `mappings` with `%%name%%` placeholders | `t(key, { name: 'value' })` fills `{name}`. To keep `%%name%%` while you migrate, start with `legacyPercentPlaceholders: true`; it matches the name case-sensitively, where v2 matched case-insensitively. |
+| `keyCase` (default `'lower'`, which lowercased every key) | `keyCase: 'lower'` keeps that; leave it out to match names exactly. |
 | `__TM(key)` and `__TI(key)`, which return `{ src, data-tid, … }` for media | `entry(key)` returns `{ value, id, type, attributes, className }`. Take a media URL from `entry(key)?.value`, which is `https:` only; `t()` returns the raw value unchecked, so never use it for `src` or `href`. Copy the `attributes` you expect, never all of them. |
 | `__TSEO`, `__TTT`, `__TMT`, `__TMD`, which write `document.title` and `<meta>` tags | Removed. Set them yourself: `document.title = tarjim.t('page.title')`. |
 | `__TD(key)`, all languages for a key | Removed. One language is downloaded at a time; call `setLanguage()` to change it. |

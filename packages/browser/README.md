@@ -80,6 +80,7 @@ error classes `TarjimConfigError` and `TarjimLanguageError` (exported as values,
 | `fetch` | the function used for every request. Defaults to the page's `fetch`; pass your own to add a proxy or a test double. |
 | `analytics` | `{ installId: false }` to send no install id (see below). |
 | `legacyPercentPlaceholders` | `true` to fill `%%name%%` placeholders from named arguments. |
+| `keyCase` | `'lower'` to match key names whatever their case, as tarjim-react-client did by default; `'exact'` (the default) matches them exactly. |
 | `strict` | `true` to throw on a bad configuration instead of serving only the embedded text. |
 | `onReport`, `debug` | `onReport` is called once per problem (its code and details) per day, and the SDK remembers that across reloads; `debug` logs reports at info level instead of debug. |
 
