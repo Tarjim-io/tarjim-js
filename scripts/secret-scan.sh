@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 #/ DESCRIPTION:
-#/   Fails when a file carries a Tarjim API key or a CloudFront signature, policy or key pair id.
-#/   Prints file:line and the kind of secret, never the secret. Placeholders pass: keys under
-#/   tenant 0 (`tarjim-0-0-0-…`), REDACTED values and short test values such as `Signature=S1`.
+#/   Fails when a file carries a Tarjim API key, a CloudFront signature, policy or key pair id, a
+#/   real Tarjim, CloudFront or AWS host, or an internal ticket id. Prints file:line and the kind of
+#/   finding, never the finding. Placeholders pass: keys under tenant 0 (`tarjim-0-0-0-…`), REDACTED
+#/   values, short test values such as `Signature=S1`, the public API host, example and `.invalid`
+#/   hosts, and the `*.cloudfront.net` wildcard.
 #/
 #/ USAGE:
 #/   secret-scan.sh [<file>...] [--help]
@@ -26,13 +28,19 @@ case "${1:-}" in
     ;;
 esac
 
-# kind<TAB>extended regex. A real key has non-zero numeric segments and a long random tail; a real
-# signature, policy or key pair id is far longer than any test value.
+# kind<TAB>extended regex<TAB>allowed match (optional, a whole-match regex). A real key has non-zero
+# numeric segments and a long random tail; a real signature, policy or key pair id is far longer than
+# any test value. Hosts and ticket ids are matched without case, as a host or a ticket is written
+# either way.
 rules=$(cat <<'RULES'
 API key	tarjim-[1-9][0-9]*-[0-9]+-[0-9]+-[A-Za-z0-9]{16,}
 CloudFront signature	Signature=[A-Za-z0-9~_-]{20,}
 CloudFront policy	Policy=[A-Za-z0-9~_-]{20,}
 CloudFront key pair id	Key-Pair-Id=[A-Z0-9]{10,}
+Tarjim host	([a-z0-9-]+\.)+tarjim\.(io|com|net|dev|app)	api\.tarjim\.io
+CloudFront host	[a-z0-9-]+\.cloudfront\.net
+AWS host	([a-z0-9-]+\.)+amazonaws\.com
+ticket id	(^|[^a-z0-9])tj-[0-9]+
 RULES
 )
 
@@ -46,16 +54,19 @@ else
 fi
 
 found=0
-while IFS=$'\t' read -r kind pattern; do
+while IFS=$'\t' read -r kind pattern allowed; do
   for file in "${files[@]}"; do
     if [[ ! -f "$file" ]]; then
       continue
     fi
-    # -n for the line number, -o would print the secret: print only the location.
-    while IFS=: read -r line _; do
+    # Each match is read to test it against the allowed one, and only its location is printed.
+    while IFS=: read -r line match; do
+      if [[ -n "$allowed" ]] && grep -qixE "$allowed" <<<"$match"; then
+        continue
+      fi
       echo "$file:$line: $kind" >&2
       found=1
-    done < <(grep -nE "$pattern" "$file" || true)
+    done < <(grep -inoE "$pattern" "$file" || true)
   done
 done <<<"$rules"
 
