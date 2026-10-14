@@ -83,13 +83,21 @@ To switch language, call `start()` again.
 
 ## Packages
 
-The packages below are `0.x`, pre-release, and not published to npm yet. Build them from this
-repository with `pnpm install && pnpm build`.
+The packages below are `0.x` and not yet for customers. They are published to npm on the `alpha`
+and `beta` channels for internal testing, all three always at the same version:
+
+```
+npm install @tarjim/browser@alpha
+npm install @tarjim/browser@beta
+```
+
+To build them from this repository instead, run `pnpm install && pnpm build`.
 
 | package | |
 |---|---|
 | [`@tarjim/core`](packages/core) | the runtime: delivery protocol, verification, locale choice and lookups |
 | [`@tarjim/browser`](packages/browser) | the browser's storage and timers around the core, and the script-tag file `tarjim-browser.iife.js` |
+| [`@tarjim/react`](packages/react) | a provider and a hook for React 18 and later |
 
 [`examples/plain-html/with-package.html`](examples/plain-html) loads the script-tag file with a
 strict Content Security Policy. Its `integrity` value is the sha384 of the built file, so print a new
