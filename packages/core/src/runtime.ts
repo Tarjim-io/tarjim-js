@@ -253,6 +253,8 @@ export async function createRuntime(given: TarjimConfig, platform: Platform): Pr
     ...Object.values(install?.manifest.slices ?? {}).flatMap((files) => Object.keys(files)),
     ...embedded.map((slice) => slice.locale).filter((locale) => typeof locale === 'string'),
   ];
+  const lacks = (install: Install, locale: string): boolean =>
+    [...wantedSlots(install.manifest, locale).keys()].some((slot) => install.slots[slot] === undefined);
   const bundle = isRecord(defaultBundle) ? defaultBundle : NO_BUNDLE;
 
   async function load(install: Install | undefined, locale: string, fallback?: Install): Promise<Served> {
@@ -413,6 +415,8 @@ export async function createRuntime(given: TarjimConfig, platform: Platform): Pr
     try {
       const result = await runCycle(cycle, reason);
       await apply(result);
+      // The language may have changed while this check was reading its locale's files.
+      if (activeInstall && lacks(activeInstall, current.snapshot.language)) void fill();
       if (result.outcome !== 'failed' && result.outcome !== 'busy') firstDone();
       if (result.outcome === 'busy' && store && !activeInstall) {
         void whenFree(() => store.withLock(async () => undefined), (free) => free === BUSY).then(adopt, () => undefined);
@@ -444,8 +448,6 @@ export async function createRuntime(given: TarjimConfig, platform: Platform): Pr
       ...(visibility ? { visibility } : {}),
     });
   }
-  const lacks = (install: Install, locale: string): boolean =>
-    [...wantedSlots(install.manifest, locale).keys()].some((slot) => install.slots[slot] === undefined);
   // A held release with no text for this language yet, as after a reload in another language: its files
   // are fetched now rather than at the next check, and without reading meta, so a hidden page or one
   // without timers polls nothing.
@@ -458,7 +460,7 @@ export async function createRuntime(given: TarjimConfig, platform: Platform): Pr
         const held = (await store.readState()).active;
         if (held) {
           activeInstall = held;
-          swap(await load(held, current.snapshot.language));
+          if (swap(await load(held, current.snapshot.language))) emit('activated');
         }
       } catch {
         // The held text stays, and the next check fetches the files.
@@ -486,7 +488,9 @@ export async function createRuntime(given: TarjimConfig, platform: Platform): Pr
   async function change(language: string): Promise<void> {
     // Before the first release is in, as when a page takes its language from the URL, a language only
     // that release has must wait for it, or for the tab that is fetching it.
-    if (!activeInstall && live && !(typeof language === 'string' && matchLocale(language, localesOf(undefined)))) {
+    // An embedded language switches at once, but only on an exact match: a regional one may be in the release.
+    const embeddedExactly = typeof language === 'string' && matchLocale(language, localesOf(undefined))?.toLowerCase() === language.toLowerCase();
+    if (!activeInstall && live && !embeddedExactly) {
       await (inflight ?? run('scheduled'));
       if (!activeInstall && store) {
         await whenFree(() => store.withLock(async () => undefined), (free) => free === BUSY);
