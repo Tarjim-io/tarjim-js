@@ -2,8 +2,9 @@
 
 React bindings for the Tarjim web SDK: a provider and a hook.
 
-> **Pre-release, not yet for customers.** The version is `0.x`, the package is not on npm yet and the
-> API may still change.
+> **Pre-release, not yet for customers.** The version is `0.x`, the package is published to npm on the
+> `alpha` and `beta` tags only, and the API may still change. Install it with
+> `npm install @tarjim/react@alpha`.
 
 Needs React 18 or newer. [`examples/react`](../../examples/react) is a complete app.
 
