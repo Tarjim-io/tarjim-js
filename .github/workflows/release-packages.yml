@@ -1,0 +1,110 @@
+name: Release packages
+
+# A digit after the v keeps this away from reference-v* tags. The exact grammar is enforced by
+# scripts/release-packages.sh, which fails the run for a tag it does not accept.
+on:
+  push:
+    tags: ["v[0-9]*"]
+
+concurrency:
+  group: release-packages-${{ github.ref }}
+
+permissions:
+  contents: read
+
+jobs:
+  # Runs the dependency tree, so it gets no write token and no npm token.
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22"
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm build
+      - run: pnpm test
+      - run: pnpm size
+      - run: scripts/secret-scan.sh
+
+  publish:
+    needs: test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: The tagged commit is on main
+        run: git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+      - name: The tag matches every package version
+        id: channel
+        run: echo "channel=$(scripts/release-packages.sh --tag "$GITHUB_REF_NAME")" >> "$GITHUB_OUTPUT"
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22"
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      # One step per package, in dependency order. A publish cannot be undone, so the first failure
+      # stops the run (see CLAUDE.md for recovering from a half-finished release).
+      - name: Publish @tarjim/core
+        run: pnpm publish --access public --tag "$CHANNEL" --no-git-checks
+        working-directory: packages/core
+        env:
+          CHANNEL: ${{ steps.channel.outputs.channel }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_CONFIG_PROVENANCE: true
+      - name: Publish @tarjim/browser
+        run: pnpm publish --access public --tag "$CHANNEL" --no-git-checks
+        working-directory: packages/browser
+        env:
+          CHANNEL: ${{ steps.channel.outputs.channel }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_CONFIG_PROVENANCE: true
+      - name: Publish @tarjim/react
+        run: pnpm publish --access public --tag "$CHANNEL" --no-git-checks
+        working-directory: packages/react
+        env:
+          CHANNEL: ${{ steps.channel.outputs.channel }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_CONFIG_PROVENANCE: true
+      - name: The GitHub release
+        run: |
+          set -euo pipefail
+          mkdir release
+          cp packages/browser/dist/tarjim-browser.iife.js release/
+          node scripts/sri.mjs release/tarjim-browser.iife.js > release/tarjim-browser.iife.js.sha384
+          sri="$(cat release/tarjim-browser.iife.js.sha384)"
+          args=(--verify-tag --title "$GITHUB_REF_NAME" --notes-file release/notes.md)
+          if [[ "$CHANNEL" == "latest" ]]; then
+            warning=""
+          else
+            args+=(--prerelease)
+            warning="**Pre-release on the \`$CHANNEL\` channel: not yet for customers.** Internal testing only."$'\n\n'
+          fi
+          cat >release/notes.md <<NOTES
+          ${warning}Packages \`@tarjim/core\`, \`@tarjim/browser\` and \`@tarjim/react\` at ${GITHUB_REF_NAME#v}, published to npm under the \`$CHANNEL\` dist-tag.
+
+          Subresource integrity of \`tarjim-browser.iife.js\`:
+
+          \`\`\`
+          $sri
+          \`\`\`
+          NOTES
+          gh release create "$GITHUB_REF_NAME" "${args[@]}" release/tarjim-browser.iife.js release/tarjim-browser.iife.js.sha384
+        env:
+          CHANNEL: ${{ steps.channel.outputs.channel }}
+          GH_TOKEN: ${{ github.token }}
