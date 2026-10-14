@@ -39,6 +39,7 @@ export interface SnapshotInput {
   locale: string;
   defaultBundle: BundleRef;
   legacyPercentPlaceholders?: boolean;
+  keyCase?: 'exact' | 'lower';
   report?: (report: SnapshotReport) => void;
 }
 
@@ -193,10 +194,11 @@ type Report = (found: SnapshotReport) => void;
 // Everything a snapshot needs from its input, read once so that the snapshot holds on to none of it.
 function serve(input: SnapshotInput, defaultKey: string, report: Report): Map<string, Source[]> {
   const { install, locale } = input;
+  const lower = input.keyCase === 'lower';
   const wantedKey = localeKey(locale);
   const embedded: DecodedSlice[] = [];
   for (const raw of Array.isArray(input.embedded) ? input.embedded : []) {
-    const slice = decodeSlice(raw);
+    const slice = decodeSlice(raw, lower);
     if (slice !== null && localeKey(slice.locale) === wantedKey) embedded.push(slice);
   }
 
@@ -206,7 +208,7 @@ function serve(input: SnapshotInput, defaultKey: string, report: Report): Map<st
     const hash = install?.slots[slotName(bundleId, spelling)];
     if (hash === undefined) return null;
     const value = parseJson(input.slices.get(hash));
-    const slice = decodeSlice(value);
+    const slice = decodeSlice(value, lower);
     if (slice === null && isRecord(value) && value['schemaVersion'] !== 1) {
       const version = value['schemaVersion'];
       report(typeof version === 'number' && Number.isFinite(version) ? { code: 'slice-schema', details: { schemaVersion: version } } : { code: 'slice-schema' });
@@ -243,6 +245,7 @@ function serve(input: SnapshotInput, defaultKey: string, report: Report): Map<st
 
 export function createSnapshot(input: SnapshotInput): Snapshot {
   const { locale, legacyPercentPlaceholders = false } = input;
+  const fold = (key: string): string => (input.keyCase === 'lower' ? key.toLowerCase() : key);
   const reporter = input.report;
   const report: Report = (found) => {
     try {
@@ -269,7 +272,7 @@ export function createSnapshot(input: SnapshotInput): Snapshot {
     for (const source of sources ?? []) {
       const names = typeof namespace === 'string' && !source.flat ? [namespace] : source.order;
       for (const name of names) {
-        const leaf = source.slice.namespaces.get(name)?.get(key);
+        const leaf = source.slice.namespaces.get(name)?.get(fold(key));
         if (leaf === undefined) continue;
         const answer = read(leaf, source.slice.byId.get(name) ?? new Map());
         if (answer !== undefined) return answer;
@@ -283,7 +286,7 @@ export function createSnapshot(input: SnapshotInput): Snapshot {
   function pluralChild(ids: ReadonlyMap<string, { key: string; leaf: Leaf }>, leaf: Leaf, key: string, form: string): Leaf | null {
     for (const id of leaf.pluralChildIds ?? []) {
       const child = ids.get(id);
-      if (child !== undefined && child.key === `${key}.${form}`) return child.leaf;
+      if (child !== undefined && child.key === `${fold(key)}.${form}`) return child.leaf;
     }
     return null;
   }
