@@ -32,8 +32,12 @@ self-hosted by the site that uses it. MIT licensed. Versions stay `0.x` until th
   - npm points `latest` at a package's first publish even when it is published with `--tag alpha`
     (and forbids removing `latest`). Until `0.1.0` ships, a plain `npm install @tarjim/browser` gets
     that alpha: always install with `@alpha` or `@beta`.
-  - The `NPM_TOKEN` repository secret is a granular npm token for the `tarjim` org with publish
-    rights; the maintainer adds it. Only the three publish steps see it.
+  - Publishing uses npm Trusted Publishing: each package on npmjs.com lists `Tarjim-io/tarjim-js` and
+    `release-packages.yml` as its trusted publisher (a maintainer setting), and the publish job swaps
+    its short-lived OIDC identity for npm access. There is no npm token in the repository. The packages
+    are set to require 2FA and disallow tokens (also a maintainer setting).
+  - The account may hold a publish for 2FA approval on npmjs.com (staged publishing). If a release
+    shows `0.0.0-stage`, approve the staged versions on npmjs.com.
   - A publish that stops half-way (core is out, browser is not) cannot be undone on npm. Do not
     re-run it: bump the counter (`-alpha.1` to `-alpha.2`, or the patch number for a plain version),
     and release again.
