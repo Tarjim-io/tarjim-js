@@ -512,7 +512,21 @@ export async function createRuntime(given: TarjimConfig, platform: Platform): Pr
         if (result.outcome === 'failed' || (state.active !== undefined && lacks(state.active, match))) throw new Error('The text for that language could not be downloaded.');
         activeInstall = state.active;
       }
-      const next = await load(activeInstall, match);
+      let next = await load(activeInstall, match);
+      // A listed file whose bytes are gone (evicted, or removed by another tab) is owed and fetched again
+      // before the switch, as start does for a file it cannot read back; a check brings a fresh signature.
+      if (next.missing.length && store && live) {
+        toOwe = next.missing;
+        await markOwed();
+        await store.updateState((s) => {
+          const due = { ...s };
+          delete due.lastCheck;
+          return due;
+        });
+        await run('scheduled');
+        next = await load(activeInstall, match);
+        if (next.missing.length) throw new Error('The text for that language could not be downloaded.');
+      }
       if (store && persist) await store.updateState((s) => ({ ...s, languageOverride: match }));
       swap(next);
       await prepare(state.pending);
