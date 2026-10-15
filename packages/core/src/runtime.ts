@@ -253,6 +253,8 @@ export async function createRuntime(given: TarjimConfig, platform: Platform): Pr
     ...Object.values(install?.manifest.slices ?? {}).flatMap((files) => Object.keys(files)),
     ...embedded.map((slice) => slice.locale).filter((locale) => typeof locale === 'string'),
   ];
+  const lacks = (install: Install, locale: string): boolean =>
+    [...wantedSlots(install.manifest, locale).keys()].some((slot) => install.slots[slot] === undefined);
   const bundle = isRecord(defaultBundle) ? defaultBundle : NO_BUNDLE;
 
   async function load(install: Install | undefined, locale: string, fallback?: Install): Promise<Served> {
@@ -413,6 +415,8 @@ export async function createRuntime(given: TarjimConfig, platform: Platform): Pr
     try {
       const result = await runCycle(cycle, reason);
       await apply(result);
+      // The language may have changed while this check was reading its locale's files.
+      if (activeInstall && lacks(activeInstall, current.snapshot.language)) void fill();
       if (result.outcome !== 'failed' && result.outcome !== 'busy') firstDone();
       if (result.outcome === 'busy' && store && !activeInstall) {
         void whenFree(() => store.withLock(async () => undefined), (free) => free === BUSY).then(adopt, () => undefined);
@@ -444,7 +448,28 @@ export async function createRuntime(given: TarjimConfig, platform: Platform): Pr
       ...(visibility ? { visibility } : {}),
     });
   }
-  const waiting = scheduler !== undefined && !activeInstall;
+  // A held release with no text for this language yet, as after a reload in another language: its files
+  // are fetched now rather than at the next check, and without reading meta, so a hidden page or one
+  // without timers polls nothing.
+  async function fill(): Promise<void> {
+    const cycle = live;
+    if (cycle && store) {
+      try {
+        await reportAll(await whenFree(() => fetchHeldLocale(cycle), ({ outcome }) => outcome === 'busy'));
+        // Read back from the store: another tab may be the one that fetched them.
+        const held = (await store.readState()).active;
+        if (held) {
+          activeInstall = held;
+          if (swap(await load(held, current.snapshot.language))) emit('activated');
+        }
+      } catch {
+        // The held text stays, and the next check fetches the files.
+      }
+    }
+    firstDone();
+  }
+  const lacking = live !== undefined && activeInstall !== undefined && lacks(activeInstall, target);
+  const waiting = scheduler !== undefined && (!activeInstall || lacking);
   if (!waiting) firstDone();
   if (scheduler && toOwe.length) {
     // An unreadable file is worth a check now, though a backoff still holds it off.
@@ -455,11 +480,49 @@ export async function createRuntime(given: TarjimConfig, platform: Platform): Pr
     });
   } else await markOwed();
   scheduler?.start();
+  if (lacking) void fill();
   if (waiting) await timeout;
 
   const persist = config.persistLanguage ?? config.language === undefined;
-  const lacks = (install: Install, locale: string): boolean =>
-    [...wantedSlots(install.manifest, locale).keys()].some((slot) => install.slots[slot] === undefined);
+
+  async function change(language: string): Promise<void> {
+    // Before the first release is in, as when a page takes its language from the URL, a language only
+    // that release has must wait for it, or for the tab that is fetching it.
+    // An embedded language switches at once, but only on an exact match: a regional one may be in the release.
+    const embeddedExactly = typeof language === 'string' && matchLocale(language, localesOf(undefined))?.toLowerCase() === language.toLowerCase();
+    if (!activeInstall && live && !embeddedExactly) {
+      await (inflight ?? run('scheduled'));
+      if (!activeInstall && store) {
+        await whenFree(() => store.withLock(async () => undefined), (free) => free === BUSY);
+        await adopt();
+      }
+    }
+    const match = typeof language === 'string' ? matchLocale(language, localesOf(activeInstall)) : null;
+    if (match === null) throw new TarjimLanguageError('There is no text for that language.');
+    if (match === current.snapshot.language) return;
+    const before = target;
+    target = match;
+    try {
+      const cycle = live;
+      // With no release held there are no files to fetch, and the lock may be the first check's.
+      if (cycle && store && activeInstall) {
+        const result = await whenFree(() => fetchHeldLocale(cycle), ({ outcome }) => outcome === 'busy');
+        await reportAll(result);
+        state = await store.readState();
+        if (result.outcome === 'failed' || (state.active !== undefined && lacks(state.active, match))) throw new Error('The text for that language could not be downloaded.');
+        activeInstall = state.active;
+      }
+      const next = await load(activeInstall, match);
+      if (store && persist) await store.updateState((s) => ({ ...s, languageOverride: match }));
+      swap(next);
+      await prepare(state.pending);
+      emit('languageChanged');
+    } catch (error) {
+      target = before;
+      throw error;
+    }
+  }
+  let changing: Promise<unknown> = Promise.resolve();
 
   return {
     get language() {
@@ -476,30 +539,11 @@ export async function createRuntime(given: TarjimConfig, platform: Platform): Pr
       return lookups.entry;
     },
 
-    async setLanguage(language) {
-      const match = typeof language === 'string' ? matchLocale(language, localesOf(activeInstall)) : null;
-      if (match === null) throw new TarjimLanguageError('There is no text for that language.');
-      if (match === current.snapshot.language) return;
-      const before = target;
-      target = match;
-      try {
-        const cycle = live;
-        if (cycle && store) {
-          const result = await whenFree(() => fetchHeldLocale(cycle), ({ outcome }) => outcome === 'busy');
-          await reportAll(result);
-          state = await store.readState();
-          if (result.outcome === 'failed' || (state.active !== undefined && lacks(state.active, match))) throw new Error('The text for that language could not be downloaded.');
-          activeInstall = state.active;
-        }
-        const next = await load(activeInstall, match);
-        if (store && persist) await store.updateState((s) => ({ ...s, languageOverride: match }));
-        swap(next);
-        await prepare(state.pending);
-        emit('languageChanged');
-      } catch (error) {
-        target = before;
-        throw error;
-      }
+    setLanguage(language) {
+      const turn = changing.then(() => change(language));
+      // One change at a time: each sets `target` and puts it back on failure, over a concurrent one.
+      changing = turn.catch(() => undefined);
+      return turn;
     },
 
     checkNow: () => run('checkNow'),

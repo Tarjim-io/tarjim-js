@@ -163,6 +163,193 @@ describe('setLanguage', () => {
   });
 });
 
+describe('a language asked for before the text is in', () => {
+  // A page that sets the language from its URL calls setLanguage as soon as it renders, before the
+  // first release has arrived.
+  it('waits for the first release, then switches to the language', async () => {
+    world = makeWorld(THREE);
+    const gate = world.server.hold('meta');
+    const runtime = await world.start({ language: 'en' });
+    // German is only in the release; the page embeds English and French.
+    const done = runtime.setLanguage('de');
+    // Nothing is decided until the check answers: the call waits, and the language stays.
+    expect(await stillPending(done)).toBe(true);
+    expect(runtime.language).toBe('en');
+    gate.release();
+
+    await within(done);
+
+    expect(runtime.language).toBe('de');
+    expect(runtime.t('a')).toBe('v1 b1 de');
+  });
+
+  it('still refuses a language the first release does not have', async () => {
+    world = makeWorld(THREE);
+    const gate = world.server.hold('meta');
+    const runtime = await world.start({ language: 'en' });
+    const done = runtime.setLanguage('es');
+    gate.release();
+    await expect(within(done)).rejects.toBeInstanceOf(TarjimLanguageError);
+    expect(runtime.language).toBe('en');
+  });
+
+  it('refuses when no release can be fetched and nothing embedded has the language', async () => {
+    world = makeWorld(THREE);
+    world.server.on('meta', () => problem(500, 'delivery.server_error'));
+    const runtime = await world.start({ language: 'en' });
+    await expect(within(runtime.setLanguage('de'))).rejects.toBeInstanceOf(TarjimLanguageError);
+    expect(runtime.language).toBe('en');
+  });
+});
+
+describe('a reload in a language the stored release has no text for yet', () => {
+  it('fetches that text at once, without waiting for the next check', async () => {
+    world = makeWorld(THREE);
+    (await world.startActive({ language: 'en' })).stop();
+    const metas = world.metaCount();
+
+    const runtime = await world.start({ language: 'fr' });
+
+    await until(() => runtime.t('a') === 'v1 b1 fr', 'the French text');
+    expect(world.metaCount()).toBe(metas);
+  });
+
+  it('is waited for by start, like a first release, up to waitForContent', async () => {
+    world = makeWorld(THREE);
+    (await world.startActive({ language: 'en' })).stop();
+
+    const runtime = await world.start({ language: 'fr', waitForContent: 3000 });
+
+    expect(runtime.t('a')).toBe('v1 b1 fr');
+  });
+});
+
+const DAY = 86_400_000;
+
+describe('switching languages before the first release, continued', () => {
+  it('switches at once to a language the page embeds, without waiting for the network', async () => {
+    world = makeWorld(THREE);
+    world.server.hold('meta');
+    const runtime = await world.start({ language: 'en' });
+    const done = runtime.setLanguage('fr');
+    expect(await stillPending(done, 150)).toBe(false);
+    expect(runtime.language).toBe('fr');
+  });
+
+  it('waits for another tab that is fetching the first release, then switches', async () => {
+    world = makeWorld(THREE);
+    const gate = world.server.hold('meta');
+    await world.start({ language: 'en' });
+    await settle(30);
+    const second = await world.start({ language: 'en' });
+    const done = second.setLanguage('de');
+    expect(await stillPending(done, 100)).toBe(true);
+    gate.release();
+    await within(done);
+    expect(second.language).toBe('de');
+  });
+
+  it('applies two calls in order, so the later one wins and is what checks send', async () => {
+    for (const early of [false, true]) {
+      world = makeWorld(THREE);
+      const gate = early ? world.server.hold('meta') : undefined;
+      const runtime = early ? await world.start({ language: 'en' }) : await world.startActive({ language: 'en' });
+      const results = Promise.allSettled([runtime.setLanguage('de'), runtime.setLanguage('fr')]);
+      gate?.release();
+      expect((await within(results)).map((r) => r.status)).toEqual(['fulfilled', 'fulfilled']);
+      await world.timers.advance(2 * DAY);
+      await runtime.checkNow();
+      await settle(30);
+      expect(runtime.language).toBe('fr');
+      expect(queryOf(world.server.requests('meta').slice(-1)[0]!.url)['language']).toBe('fr');
+      world.stopAll();
+    }
+  });
+});
+
+describe('a reload in a language the stored release has no text for yet, continued', () => {
+  it('reads no meta for it, on a platform without timers', async () => {
+    world = makeWorld({ ...THREE, node: true });
+    const first = await world.start({ language: 'en' });
+    await first.checkNow();
+    first.stop();
+    await world.timers.advance(2 * DAY);
+    const metas = world.metaCount();
+    const runtime = await world.start({ language: 'fr' });
+    await until(() => runtime.t('a') === 'v1 b1 fr', 'the French text');
+    expect(world.metaCount()).toBe(metas);
+  });
+
+  it('reads no meta for it while the page is hidden', async () => {
+    world = makeWorld({ ...THREE, hidden: true });
+    world.visibility.set(true);
+    const first = await world.start({ language: 'en' });
+    await until(() => first.t('a') === 'v1 b1 en', 'the first release');
+    first.stop();
+    world.visibility.set(false);
+    await world.timers.advance(2 * DAY);
+    const metas = world.metaCount();
+    await world.start({ language: 'fr' });
+    await settle(60);
+    expect(world.metaCount()).toBe(metas);
+  });
+
+  it('stops waiting when the fetch fails, and serves what is held', async () => {
+    world = makeWorld(THREE);
+    (await world.startActive({ language: 'en' })).stop();
+    world.server.on('object', () => problem(500, 'delivery.server_error'));
+    const start = world.start({ language: 'fr', waitForContent: 3000 });
+    expect(await stillPending(start, 200)).toBe(false);
+  });
+
+  it('takes the text another tab is fetching for it, without stalling', async () => {
+    world = makeWorld(THREE);
+    (await world.startActive({ language: 'en' })).stop();
+    const gate = world.server.hold('object');
+    await world.start({ language: 'fr' });
+    await settle(30);
+    const start = world.start({ language: 'fr', waitForContent: 3000 });
+    await settle(100);
+    gate.release();
+    const runtime = await within(start, 1500);
+    await until(() => runtime.t('a') === 'v1 b1 fr', 'the French text');
+  });
+});
+
+describe('the first release and an early switch, round two', () => {
+  it('waits for a regional language only the release has, not the embedded base language', async () => {
+    world = makeWorld({ release: { locales: ['en', 'fr-CA'] } });
+    const gate = world.server.hold('meta');
+    const runtime = await world.start({ language: 'en' });
+    const done = runtime.setLanguage('fr-CA');
+    gate.release();
+    await within(done);
+    expect(runtime.language).toBe('fr-CA');
+  });
+
+  it('fetches the files of a language chosen while the first release was on its way', async () => {
+    world = makeWorld(THREE);
+    const gate = world.server.hold('manifest');
+    const runtime = await world.start({ language: 'en' });
+    await settle(30);
+    await within(runtime.setLanguage('fr'));
+    gate.release();
+    await until(() => runtime.t('a') === 'v1 b1 fr', 'the French text from the release', 1500);
+  });
+
+  it('says activated when the fetched text of a missing language replaces what start showed', async () => {
+    world = makeWorld(THREE);
+    (await world.startActive({ language: 'en' })).stop();
+    const gate = world.server.hold('object');
+    const runtime = await world.start({ language: 'fr' });
+    const seen: string[] = [];
+    runtime.on('activated', (event) => seen.push(event.type));
+    gate.release();
+    await until(() => runtime.t('a') === 'v1 b1 fr', 'the French text');
+    expect(seen).toEqual(['activated']);
+  });
+});
+
 describe('remembering the choice', () => {
   const asRuntime = async (config: Record<string, unknown> = {}): Promise<Tarjim> => {
     const runtime = await world.startActive(config);

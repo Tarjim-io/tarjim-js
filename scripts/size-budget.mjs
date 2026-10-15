@@ -7,7 +7,7 @@ import { gzipSync } from 'node:zlib';
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 
 const BUDGETS = [
-  { name: '@tarjim/core', entry: 'packages/core/src/index.ts', maxBytes: 12 * 1024 },
+  { name: '@tarjim/core', entry: 'packages/core/src/index.ts', maxBytes: 13 * 1024 },
   // The adapter alone: React and the SDK it wraps are counted elsewhere.
   { name: '@tarjim/react', entry: 'packages/react/src/index.ts', maxBytes: 2 * 1024, external: ['react', 'react/jsx-runtime', '@tarjim/*'] },
 ];
