@@ -350,6 +350,39 @@ describe('the first release and an early switch, round two', () => {
   });
 });
 
+describe('switching to a language whose stored file cannot be read', () => {
+  // The release lists the file and it was fetched once, but its bytes are gone from the store (evicted
+  // under storage pressure, or removed by another tab). A reload repairs it at start; a switch must too.
+  it('fetches the file again and shows its text, instead of key names', async () => {
+    world = makeWorld(THREE);
+    const runtime = await world.startActive({ language: 'en' });
+    await runtime.setLanguage('fr');
+    await runtime.setLanguage('en');
+    const inner = (world.store as unknown as { inner: { slices: Map<string, Uint8Array> } }).inner;
+    inner.slices.delete(hashOf(world.server.current, 'b1', 'fr'));
+
+    await within(runtime.setLanguage('fr'));
+
+    // As for any switch, the language changes only once its text is in: no key names in between.
+    expect(runtime.language).toBe('fr');
+    expect(runtime.t('a')).toBe('v1 b1 fr');
+  });
+
+  it('keeps the old language when the file cannot be fetched again either', async () => {
+    world = makeWorld(THREE);
+    const runtime = await world.startActive({ language: 'en' });
+    await runtime.setLanguage('fr');
+    await runtime.setLanguage('en');
+    const inner = (world.store as unknown as { inner: { slices: Map<string, Uint8Array> } }).inner;
+    inner.slices.delete(hashOf(world.server.current, 'b1', 'fr'));
+    world.server.on('object', () => problem(500, 'delivery.server_error'));
+
+    await expect(within(runtime.setLanguage('fr'))).rejects.toBeInstanceOf(Error);
+    expect(runtime.language).toBe('en');
+    expect(runtime.t('a')).toBe('v1 b1 en');
+  });
+});
+
 describe('remembering the choice', () => {
   const asRuntime = async (config: Record<string, unknown> = {}): Promise<Tarjim> => {
     const runtime = await world.startActive(config);
