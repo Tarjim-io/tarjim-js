@@ -119,7 +119,9 @@ const MESSAGES: Record<string, string> = {
   'storage-unavailable': 'Storage unavailable: only the embedded text is served.',
   'embedded-invalid': 'embedded must be an array of slices; ignored.',
   'app-version-normalised': 'appVersion was reduced to major.minor.patch.',
-  'unbound-key': 'The key is bound to no release: only the embedded text is served.',
+  'unbound-key':
+    'This key is not bound to a track and stage, so it can act as its creator everywhere. ' +
+    'Use a key bound to a stage. For the latest translations, turn on Follow latest on that stage.',
   configuration: 'The delivery server refused the request; check the URL and key.',
   'meta-schema': 'The delivery server uses a newer format; the held text is kept.',
   'manifest-schema': 'A release uses a newer manifest format; not installed.',

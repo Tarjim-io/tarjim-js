@@ -12,6 +12,18 @@ hashes, keeps it in the browser and answers lookups. It also builds the script-t
 The runtime itself lives in [`@tarjim/core`](../core); this package supplies the browser's storage,
 timers and tab coordination.
 
+## Before you start
+
+To try it, set up delivery in the console:
+
+1. Create a track, and a stage in it with **Follow latest** turned on, so the stage serves your
+   latest translations without a manual release.
+2. Create a key bound to that stage.
+3. Copy the delivery URL the console shows for it.
+
+Use only a key bound to a stage. A key bound to no track and stage can act as its creator
+everywhere, so the SDK serves only the embedded text with it and reports `unbound-key`.
+
 ## Use it from a script tag
 
 Every release on [GitHub](https://github.com/Tarjim-io/tarjim-js/releases) carries

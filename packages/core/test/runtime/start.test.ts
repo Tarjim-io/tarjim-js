@@ -344,6 +344,17 @@ describe('a key bound to nothing', () => {
     expect(runtime.t('a')).toBe('embedded a');
   });
 
+  it('says how to fix it in the report', async () => {
+    world = makeWorld();
+    unbound();
+    await world.start();
+    await until(() => world.reportsOf('unbound-key').length === 1, 'the report');
+    expect(world.reportsOf('unbound-key')[0].message).toBe(
+      'This key is not bound to a track and stage, so it can act as its creator everywhere. ' +
+        'Use a key bound to a stage. For the latest translations, turn on Follow latest on that stage.'
+    );
+  });
+
   it('keeps polling for a key that is bound (twin)', async () => {
     world = makeWorld();
     await world.startActive();

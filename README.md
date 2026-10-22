@@ -15,6 +15,18 @@ Use it two ways:
 - **Read it**: it is the executable description of the protocol. To write a client in another
   language, port it alongside [PROTOCOL.md](PROTOCOL.md).
 
+### Before you start
+
+To try it, set up delivery in the console:
+
+1. Create a track, and a stage in it with **Follow latest** turned on, so the stage serves your
+   latest translations without a manual release.
+2. Create a key bound to that stage.
+3. Copy the delivery URL the console shows for it.
+
+Use only a key bound to a stage. A key bound to no track and stage can act as its creator
+everywhere, so the client requests nothing with it and reports `unbound-key`.
+
 ### Embed it
 
 1. Download `tarjim-reference.js` from a [release](../../releases). Check it against the sha256 in the
