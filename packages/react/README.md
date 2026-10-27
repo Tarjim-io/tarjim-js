@@ -8,6 +8,18 @@ React bindings for the Tarjim web SDK: a provider and a hook.
 
 Needs React 18 or newer. [`examples/react`](../../examples/react) is a complete app.
 
+## Before you start
+
+To try it, set up delivery in the console:
+
+1. Create a track, and a stage in it with **Follow latest** turned on, so the stage serves your
+   latest translations without a manual release.
+2. Create a key bound to that stage.
+3. Copy the delivery URL the console shows for it.
+
+Use only a key bound to a stage. A key bound to no track and stage can act as its creator
+everywhere, so the SDK serves only the embedded text with it and reports `unbound-key`.
+
 ## Use it
 
 Create the config once, outside any component, and wrap the app:
