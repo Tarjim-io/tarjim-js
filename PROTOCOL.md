@@ -96,7 +96,8 @@ network failure exactly like a 5xx.
   },
   "slices": {
     "ns7": { "en": { "json": { "hash": "<sha256>", "size": 311, "transferSize": 245 }, "strings": { … } } }
-  }
+  },
+  "bundleOrder": ["ns7", "b3"]
 }
 ```
 
@@ -116,10 +117,13 @@ network failure exactly like a 5xx.
     blank on purpose. JSON slices already carry their blanks, so a JSON bundle never has the field.
 - A bundle's locales are the locales its `slices` entry lists. That list can differ between bundles and
   need not include `baseLocale`. Never use `baseLocale` to choose a language.
-- `bundleOrder`, when present, lists the bundle ids in the order the distribution lists them, for
-  example `["b12", "b7"]`. Later in the list wins a shared key (section 6). Without it, use the order of
-  the keys of the `bundles` object as received. Ignore an id with no bundle. A bundle the list omits
-  comes before the listed ones.
+- A release manifest carries a top-level `bundleOrder` array: the `bundles` keys (`b<id>`, `ns<id>`) in
+  the order the app's distribution lists them. Read the order from `bundleOrder`, never from the order
+  of the `bundles` object's keys, which JSON does not guarantee across languages. Where two bundles hold
+  the same key in a merged view, the bundle listed LATER in `bundleOrder` wins (section 6). Ignore an id
+  with no bundle; a bundle the list omits comes before the listed ones. A manifest without `bundleOrder`
+  (a release published before it existed) has no defined order: fall back to the `bundles` keys sorted
+  by id, `ns*` before `b*`, numeric ascending, which is how those manifests were written.
 - A manifest with no `json` file at all has nothing for a JSON client: keep what you hold and report
   it. Do not install it.
 

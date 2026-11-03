@@ -33,10 +33,17 @@ describe('merged reading, with no default bundle', () => {
     expect(t.entry('a')?.id).toBe('2');
   });
 
-  it('goes by the order the manifest lists, not by id', () => {
-    const t = read(merged({ a: leaf(1, 'listed first') }, { a: leaf(2, 'listed last') }, ['b9', 'b2']));
+  it('goes by the order the manifest gives, not by id', () => {
+    const held = merged({ a: leaf(1, 'listed first') }, { a: leaf(2, 'listed last') }, ['b9', 'b2']);
+    held.install.manifest.bundleOrder = ['b9', 'b2'];
 
-    expect(t.t('a')).toBe('listed last');
+    expect(read(held).t('a')).toBe('listed last');
+  });
+
+  it('goes by sorted id when the manifest gives no order', () => {
+    const held = merged({ a: leaf(1, 'b9') }, { a: leaf(2, 'b2') }, ['b9', 'b2']);
+
+    expect(read(held).t('a')).toBe('b9');
   });
 
   it('takes a plural family whole from the winning bundle, never mixing forms', () => {

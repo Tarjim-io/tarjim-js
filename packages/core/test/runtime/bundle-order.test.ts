@@ -20,10 +20,15 @@ describe('the order of the bundles', () => {
     expect(bundleOrderOf(manifest)).toEqual(['b3', 'b1', 'b2']);
   });
 
-  it('falls back to the order of the bundles object when it does not', () => {
-    const manifest = decodeManifest({ schemaVersion: 1, bundles: { b3: BUNDLES.b3, b1: BUNDLES.b1 }, slices: SLICES })!;
+  it('falls back to sorted ids when it does not, namespaces first, then numeric, whatever the order of the object', () => {
+    const bundle = { type: 'custom', name: 'x', namespaces: [] };
+    const manifest = decodeManifest({
+      schemaVersion: 1,
+      bundles: { b10: bundle, ns7: bundle, b2: bundle, ns10: bundle },
+      slices: { b10: SLICES.b1, ns7: SLICES.b1, b2: SLICES.b1, ns10: SLICES.b1 },
+    })!;
 
-    expect(bundleOrderOf(manifest)).toEqual(['b3', 'b1']);
+    expect(bundleOrderOf(manifest)).toEqual(['ns7', 'ns10', 'b2', 'b10']);
   });
 
   it.each([

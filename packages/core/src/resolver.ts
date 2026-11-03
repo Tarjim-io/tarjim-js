@@ -1,6 +1,6 @@
 import { isRecord, parseJson } from './json.js';
 import { localeKey } from './locale.js';
-import { bundleOrderOf } from './manifest.js';
+import { bundleOrderOf, compareBundleIds } from './manifest.js';
 import { decodeSlice, foldKey } from './slice.js';
 import type { DecodedSlice, Leaf, Slice } from './slice.js';
 import { slotName } from './store.js';
@@ -141,15 +141,6 @@ function stringify(value: unknown): string | undefined {
   } catch {
     return undefined;
   }
-}
-
-// Bundle ids compare by their number ("ns7" before "ns10"), then as text.
-function compareBundleIds(a: string, b: string): number {
-  const x = a.replace(/\D/g, '').replace(/^0+/, '');
-  const y = b.replace(/\D/g, '').replace(/^0+/, '');
-  if (x.length !== y.length) return x.length - y.length;
-  if (x !== y) return x < y ? -1 : 1;
-  return a < b ? -1 : a > b ? 1 : 0;
 }
 
 const bundleKey = (type: unknown, name: unknown): string =>
