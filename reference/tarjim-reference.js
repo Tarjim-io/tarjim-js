@@ -330,6 +330,12 @@
     Object.keys(manifest.bundles).forEach(function (id) {
       var bundle = manifest.bundles[id];
       if (!isObject(bundle) || typeof bundle.type !== 'string' || typeof bundle.name !== 'string') return;
+      // A native bundle lists no JSON file, so it must not win the name over one that does.
+      var perLocale = manifest.slices[id];
+      var hasJson = isObject(perLocale) && Object.keys(perLocale).some(function (locale) {
+        return jsonFile(manifest, id, locale) !== null;
+      });
+      if (!hasJson) return;
       var key = bundleKey(bundle.type, bundle.name);
       if (!(key in chosen) || compareBundleIds(id, chosen[key]) < 0) chosen[key] = id;
     });

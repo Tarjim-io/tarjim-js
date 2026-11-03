@@ -163,6 +163,27 @@ describe('meta problems', () => {
   });
 });
 
+describe('a native bundle in the manifest', () => {
+  it('is skipped without a report, and does not shadow a JSON bundle of the same name', async () => {
+    const bundles = {
+      ns1: { type: 'namespace', name: 'default', format: 'ios', emptyValues: 'empty_string' },
+      ns2: { type: 'namespace', name: 'default' },
+    };
+    const slices = { ns2: { en: makeSlice('ns2', 'en', { 'app.title': leaf(1, 'Tarjim') }) } };
+    const json = basicRelease({ bundles, slices }).manifest.slices.ns2;
+    const release = basicRelease({
+      bundles,
+      slices,
+      manifestOverrides: { slices: { ns1: { en: { strings: { hash: 'a'.repeat(64), size: 1 } } }, ns2: json } },
+    });
+
+    const { client, codes } = await startClient(release);
+
+    expect(client.t('app.title')).toBe('Tarjim');
+    expect(codes()).toEqual([]);
+  });
+});
+
 describe('unbound key', () => {
   it('is inactive with a report and no manifest request when the meta has no track', async () => {
     const unbound = basicRelease({ metaOverrides: { track: null } });
