@@ -2,7 +2,8 @@ import { HEX64, entriesOf, isRecord } from './json.js';
 import type { Manifest, ManifestBundle, SliceFile } from './types.js';
 
 // Lenient on purpose: an entry that is not understood is dropped, never reported. Only the JSON
-// file of a slice is kept; no other file type is ever read.
+// file of a slice is kept; no other file type is ever read, so a native bundle, which lists none,
+// is dropped whole. Left in, it could shadow a JSON bundle of the same type and name.
 export function decodeManifest(value: unknown): Manifest | null {
   return decode(value, (files) => (isRecord(files) ? files['json'] : undefined));
 }
@@ -41,7 +42,8 @@ function decode(value: unknown, jsonFileOf: (files: unknown) => unknown): Manife
           decoded[locale] = { hash, size: size as number };
         }
       }
-      manifest.slices[id] = decoded;
+      if (Object.keys(decoded).length) manifest.slices[id] = decoded;
+      else delete manifest.bundles[id];
     }
     return manifest;
   } catch {

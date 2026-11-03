@@ -127,6 +127,7 @@ const MESSAGES: Record<string, string> = {
   'manifest-schema': 'A release uses a newer manifest format; not installed.',
   'manifest-integrity': 'A manifest failed its checksum and was rejected.',
   'manifest-unreadable': 'A manifest could not be read.',
+  'no-file-type': 'A release has no file this client can read; the held text is kept.',
   'slice-integrity': 'A slice failed its hash and was not used.',
   'slice-schema': 'A slice uses a newer format; not used.',
   storage: 'Writing to storage failed.',
@@ -496,7 +497,7 @@ export async function createRuntime(given: TarjimConfig, platform: Platform): Pr
         await adopt();
       }
     }
-    const match = typeof language === 'string' ? matchLocale(language, localesOf(activeInstall)) : null;
+    const match = typeof language === 'string' ? matchLocale(language, localesOf(activeInstall), fallbackLanguage) : null;
     if (match === null) throw new TarjimLanguageError('There is no text for that language.');
     if (match === current.snapshot.language) return;
     const before = target;

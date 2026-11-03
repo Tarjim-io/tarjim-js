@@ -1,4 +1,5 @@
 import { clampRetryAfter, dueAt, failureWaitSeconds, notBeforeOf } from './cadence.js';
+import { mayBeStaleSignature } from './delivery-client.js';
 import { BUSY, composeSlots, parseSlot, slotName } from './store.js';
 import type { Install, State, Store } from './store.js';
 import type { DeliveryClient, Manifest, Meta, MetaIdentity, SliceFile } from './types.js';
@@ -20,6 +21,7 @@ export type CycleCondition =
   | { code: 'manifest-schema'; schemaVersion: unknown }
   | { code: 'manifest-integrity' }
   | { code: 'manifest-unreadable' }
+  | { code: 'no-file-type' }
   | { code: 'slice-integrity' }
   | { code: 'storage' };
 
@@ -342,7 +344,7 @@ async function poll(context: CycleContext, state: State): Promise<CycleResult> {
       break;
   }
 
-  const { meta } = answer;
+  let { meta } = answer;
   const reject = (current: State): void => {
     current.rejectedChecksums = [...(current.rejectedChecksums ?? []), meta.checksum].slice(-MAX_REJECTED);
   };
@@ -374,7 +376,15 @@ async function poll(context: CycleContext, state: State): Promise<CycleResult> {
     return none();
   }
 
-  const fetched = await client.fetchManifest(meta);
+  let fetched = await client.fetchManifest(meta);
+  if (meta.authenticated !== true && mayBeStaleSignature(fetched)) {
+    // Once per check. A changed checksum means the stage moved: the next check takes that release whole.
+    const again = await client.fetchMeta(identity);
+    if (again.kind === 'received' && again.meta.checksum === meta.checksum) {
+      meta = again.meta;
+      fetched = await client.fetchManifest(meta);
+    }
+  }
   if (fetched.kind !== 'verified') {
     if (fetched.kind === 'checksumMismatch') {
       await settle(context, reject);
@@ -388,6 +398,12 @@ async function poll(context: CycleContext, state: State): Promise<CycleResult> {
   if (manifest.schemaVersion !== KNOWN_SCHEMA) {
     await settle(context, reject);
     return { outcome: 'failed', conditions: [{ code: 'manifest-schema', schemaVersion: manifest.schemaVersion }] };
+  }
+
+  // Installing this would take every text away, so what is held stays, and the checksum is not read again.
+  if (!Object.keys(manifest.slices).length) {
+    await settle(context, reject);
+    return { outcome: 'noChange', conditions: [{ code: 'no-file-type' }] };
   }
 
   const wanted = wantedSlots(manifest, locale);
