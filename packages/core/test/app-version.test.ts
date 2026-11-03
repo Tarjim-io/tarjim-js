@@ -12,28 +12,27 @@ describe('normaliseAppVersion', () => {
     ['2', '2.0.0'],
     ['2.', '2.0.0'],
     ['1.2.3.4', '1.2.3'],
-    ['v', '0.0.0'],
-    ['vv1.2.3', '0.0.0'],
-    ['', '0.0.0'],
-    ['abc', '0.0.0'],
-    ['99999999999999999999', '0.0.0'],
-    ['1..2', '0.0.0'],
+    ['v', null],
+    ['vv1.2.3', null],
+    ['', null],
+    ['abc', null],
+    ['99999999999999999999', null],
+    ['1..2', null],
+    ['123456789.0.1', '123456789.0.1'],
+    ['1234567890.0.1', null],
+    ['0000000001.2.3', '1.2.3'],
+    ['007.0.00', '7.0.0'],
+    ['2.1.0+build.5', '2.1.0'],
   ])('turns %j into %j', (raw, expected) => {
     expect(normaliseAppVersion(raw)).toBe(expected);
   });
 
   it.each([[undefined], [null], [42], [{}], [[]], [true], [Symbol('v')], [10n]])(
-    'answers 0.0.0 for the non-string %s',
+    'finds no version in the non-string %s',
     (raw) => {
-      expect(normaliseAppVersion(raw)).toBe('0.0.0');
+      expect(normaliseAppVersion(raw)).toBeNull();
     },
   );
-
-  it('answers 0.0.0 when the result would be longer than 32 characters', () => {
-    const big = '9007199254740991';
-    expect(normaliseAppVersion(`${big}.${big}.${big}`)).toBe('0.0.0');
-    expect(normaliseAppVersion('1.2.3')).toBe('1.2.3');
-  });
 
   it('never throws, even for a value whose string conversion throws', () => {
     const hostile = {
@@ -41,7 +40,7 @@ describe('normaliseAppVersion', () => {
         throw new Error('no');
       },
     };
-    expect(normaliseAppVersion(hostile)).toBe('0.0.0');
+    expect(normaliseAppVersion(hostile)).toBeNull();
     expect(normaliseAppVersion('1.0.0')).toBe('1.0.0');
   });
 });

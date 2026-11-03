@@ -264,19 +264,19 @@ export function storeContract(name: string, makeWorld: () => StoreWorld | Promis
         const two = await w.open('a');
         await Promise.all([
           one.updateState((state) => ({ ...state, lastCheck: 1 })),
-          two.updateState((state) => ({ ...state, backoffStep: 2 })),
+          two.updateState((state) => ({ ...state, notBefore: 2 })),
         ]);
-        expect(await one.readState()).toEqual({ lastCheck: 1, backoffStep: 2 });
-        expect(await two.readState()).toEqual({ lastCheck: 1, backoffStep: 2 });
+        expect(await one.readState()).toEqual({ lastCheck: 1, notBefore: 2 });
+        expect(await two.readState()).toEqual({ lastCheck: 1, notBefore: 2 });
       });
 
       it('loses no increment when ten updates race across two instances', async () => {
         const w = await make();
         const one = await w.open('a');
         const two = await w.open('a');
-        const bump = (state: { backoffStep?: number }) => ({ ...state, backoffStep: (state.backoffStep ?? 0) + 1 });
+        const bump = (state: { lastCheck?: number }) => ({ ...state, lastCheck: (state.lastCheck ?? 0) + 1 });
         await Promise.all(Array.from({ length: 10 }, (_, i) => (i % 2 ? one : two).updateState(bump)));
-        expect((await one.readState()).backoffStep).toBe(10);
+        expect((await one.readState()).lastCheck).toBe(10);
       });
     });
 

@@ -1,6 +1,6 @@
 import { dueAt } from './cadence.js';
 import { fetchHeldLocale, runCycle, wantedSlots } from './cycle.js';
-import type { CycleContext, CycleReason, CycleResult } from './cycle.js';
+import type { CycleContext, CycleResult } from './cycle.js';
 import { createDeliveryClient } from './delivery-client.js';
 import { deliveryUrlProblem } from './delivery-url.js';
 import { normaliseAppVersion } from './app-version.js';
@@ -19,7 +19,8 @@ import { SDK_VERSION } from './version.js';
 export interface TarjimConfig {
   deliveryUrl: string;
   apiKey: string;
-  appVersion: string;
+  /** Your app's version; ranges on a release are matched against it. Absent: served as the newest app. */
+  appVersion?: string;
   defaultBundle: BundleRef;
   fallbackLanguage: string;
   language?: string;
@@ -90,11 +91,10 @@ export interface Platform {
   openStore(deliveryUrl: string, apiKey: string): Promise<{ store: Store; degradedReason?: string }>;
   browserLanguages(): readonly string[];
   osVersion?(): string | undefined;
-  /** Absent in Node: no scheduler runs and only checkNow() checks. */
+  /** Absent in Node: no launch or foreground check runs and only checkNow() checks. */
   timers?: Timers;
   visibility?: Visibility;
   now(): number;
-  random(): number;
   randomId(): string;
   log(level: 'debug' | 'info', message: string, details?: Record<string, string | number>): void;
 }
@@ -118,7 +118,7 @@ const MESSAGES: Record<string, string> = {
   'insecure-context': 'Insecure context: only the embedded text is served.',
   'storage-unavailable': 'Storage unavailable: only the embedded text is served.',
   'embedded-invalid': 'embedded must be an array of slices; ignored.',
-  'app-version-normalised': 'appVersion was reduced to major.minor.patch.',
+  'app-version-normalised': 'appVersion was reduced to major.minor.patch, or dropped if none could be read.',
   'unbound-key':
     'This key is not bound to a track and stage, so it can act as its creator everywhere. ' +
     'Use a key bound to a stage. For the latest translations, turn on Follow latest on that stage.',
@@ -229,7 +229,9 @@ export async function createRuntime(given: TarjimConfig, platform: Platform): Pr
   const embedded = (Array.isArray(config.embedded) ? config.embedded : []).filter(isRecord) as Slice[];
   if (config.embedded !== undefined && !Array.isArray(config.embedded)) await report('embedded-invalid');
   const appVersion = normaliseAppVersion(config.appVersion);
-  if (valid && appVersion !== config.appVersion) await report('app-version-normalised', { from: String(config.appVersion).slice(0, 32), to: appVersion });
+  if (valid && config.appVersion !== undefined && (appVersion === null || appVersion !== config.appVersion)) {
+    await report('app-version-normalised', { from: String(config.appVersion).slice(0, 32), to: appVersion ?? 'none' });
+  }
 
   let state: State = {};
   let previous: Install | undefined;
@@ -344,17 +346,14 @@ export async function createRuntime(given: TarjimConfig, platform: Platform): Pr
   let analytics = config.analytics?.installId !== false;
   let installId = state.installId;
   const osVersion = platform.osVersion?.();
-  // One value per poll, so the scheduler and the cycle agree on when the next check is due.
-  let jitter = platform.random();
   const send = config.fetch ?? platform.fetch;
   let live: CycleContext | undefined =
     store && send
       ? {
           store,
-          client: createDeliveryClient({ deliveryUrl, apiKey, appVersion: config.appVersion, platform: platform.name, fetch: send }),
+          client: createDeliveryClient({ deliveryUrl, apiKey, ...(config.appVersion === undefined ? {} : { appVersion: config.appVersion }), platform: platform.name, fetch: send }),
           sdkVersion: SDK_VERSION,
           now,
-          random: () => jitter,
           locale: () => target,
           identity: () => ({
             ...(analytics && installId ? { installId } : {}),
@@ -411,11 +410,11 @@ export async function createRuntime(given: TarjimConfig, platform: Platform): Pr
     firstDone();
   }
 
-  async function check(reason: CycleReason): Promise<CheckResult> {
+  async function check(): Promise<CheckResult> {
     const cycle = live;
     if (!cycle) return 'failed';
     try {
-      const result = await runCycle(cycle, reason);
+      const result = await runCycle(cycle);
       await apply(result);
       // The language may have changed while this check was reading its locale's files.
       if (activeInstall && lacks(activeInstall, current.snapshot.language)) void fill();
@@ -427,13 +426,12 @@ export async function createRuntime(given: TarjimConfig, platform: Platform): Pr
     } catch {
       return 'failed';
     } finally {
-      jitter = platform.random();
       await markOwed();
     }
   }
 
-  function run(reason: CycleReason): Promise<CheckResult> {
-    const running = check(reason);
+  function run(): Promise<CheckResult> {
+    const running = check();
     inflight = running;
     void running.then(() => {
       if (inflight === running) inflight = undefined;
@@ -443,10 +441,9 @@ export async function createRuntime(given: TarjimConfig, platform: Platform): Pr
 
   if (live && store && timers) {
     scheduler = createScheduler({
-      check: () => run('scheduled'),
-      nextDueAt: async () => dueAt(await store.readState(), now(), jitter),
+      check: run,
+      nextDueAt: async () => dueAt(await store.readState(), now()),
       now,
-      timers,
       ...(visibility ? { visibility } : {}),
     });
   }
@@ -493,7 +490,7 @@ export async function createRuntime(given: TarjimConfig, platform: Platform): Pr
     // An embedded language switches at once, but only on an exact match: a regional one may be in the release.
     const embeddedExactly = typeof language === 'string' && matchLocale(language, localesOf(undefined))?.toLowerCase() === language.toLowerCase();
     if (!activeInstall && live && !embeddedExactly) {
-      await (inflight ?? run('scheduled'));
+      await (inflight ?? run());
       if (!activeInstall && store) {
         await whenFree(() => store.withLock(async () => undefined), (free) => free === BUSY);
         await adopt();
@@ -525,7 +522,7 @@ export async function createRuntime(given: TarjimConfig, platform: Platform): Pr
           delete due.lastCheck;
           return due;
         });
-        await run('scheduled');
+        await run();
         next = await load(activeInstall, match);
         if (next.missing.length) throw new Error('The text for that language could not be downloaded.');
       }
@@ -562,7 +559,7 @@ export async function createRuntime(given: TarjimConfig, platform: Platform): Pr
       return turn;
     },
 
-    checkNow: () => run('checkNow'),
+    checkNow: run,
 
     activatePendingUpdate() {
       const next = prepared;

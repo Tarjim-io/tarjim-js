@@ -202,7 +202,6 @@ export function makeWorld(options: WorldOptions = {}) {
     ...(options.osVersion === undefined ? {} : { osVersion: () => options.osVersion }),
     ...(options.node ? {} : { timers, visibility }),
     now: clock.now,
-    random: () => 0,
     randomId: () => `00000000-0000-4000-8000-${String(++ids).padStart(12, '0')}`,
     log: (level, message, details) => void logs.push({ level, message, details }),
     ...overrides,
@@ -251,6 +250,11 @@ export function makeWorld(options: WorldOptions = {}) {
       for (const runtime of running.splice(0)) runtime.stop();
     },
     metaCount: () => server.count('meta'),
+    /** Leaves the page and comes back, the moment a check may run. */
+    returnToForeground() {
+      visibility.set(false);
+      visibility.set(true);
+    },
     storeIdValue: () => storeId(DELIVERY_URL, API_KEY),
     /** Makes the next check go to a different release. */
     release(spec: ReleaseSpec) {

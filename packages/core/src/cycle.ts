@@ -1,9 +1,7 @@
-import { CHECK_NOW_FLOOR_SECONDS, MIN_POLL_SECONDS, backoffSeconds, clampPollAfter, clampRetryAfter, dueAt, notBeforeOf } from './cadence.js';
+import { clampRetryAfter, dueAt, failureWaitSeconds, notBeforeOf } from './cadence.js';
 import { BUSY, composeSlots, parseSlot, slotName } from './store.js';
 import type { Install, State, Store } from './store.js';
 import type { DeliveryClient, Manifest, Meta, MetaIdentity, SliceFile } from './types.js';
-
-export type CycleReason = 'scheduled' | 'checkNow';
 
 export type CycleOutcome =
   | 'busy'
@@ -39,7 +37,6 @@ export interface CycleContext {
   client: DeliveryClient;
   sdkVersion: string;
   now(): number;
-  random(): number;
   /** The locale the visitor is served; undefined before one can be chosen. */
   locale(): string | undefined;
   /** Identity fields the cycle does not own (install id, OS version, app build). */
@@ -89,9 +86,7 @@ function metaOf(install: Install): Meta {
     slicesBaseUrl: install.slicesBaseUrl,
     authenticated: install.authenticated,
     ...(install.signedQuery === undefined ? {} : { signedQuery: install.signedQuery }),
-    track: '',
     releaseId: install.releaseId,
-    pollAfter: 0,
   };
 }
 
@@ -100,29 +95,26 @@ function identityOf(context: CycleContext, state: State): MetaIdentity {
   return {
     ...context.identity(),
     release: (state.pending ?? state.active)?.releaseId ?? 0,
-    ...(state.lastPollAfter === undefined ? {} : { pollSeconds: state.lastPollAfter }),
     ...(language === undefined ? {} : { language }),
   };
 }
 
-/** Records a completed check, which also ends any backoff. */
-function settle(context: CycleContext, pollAfter: number, edit?: (state: State) => void): Promise<State> {
+/** Records a completed check, which also ends any wait a failure started. */
+function settle(context: CycleContext, edit?: (state: State) => void): Promise<State> {
   return context.store.updateState((state) => {
-    const next: State = { ...state, lastCheck: context.now(), lastPollAfter: pollAfter };
-    delete next.backoffStep;
+    const next: State = { ...state, lastCheck: context.now() };
     delete next.notBefore;
     edit?.(next);
     return next;
   });
 }
 
-// lastCheck is left alone so the retry falls due at notBefore rather than a whole poll interval later.
+// There is no retry timer: the wait only decides whether the next launch or return to the foreground may check.
 function backOff(context: CycleContext, retryAfter?: number): Promise<State> {
-  return context.store.updateState((state) => {
-    const step = state.backoffStep ?? 0;
-    const wait = backoffSeconds(step, clampPollAfter(state.lastPollAfter), clampRetryAfter(retryAfter));
-    return { ...state, backoffStep: step + 1, notBefore: context.now() + wait * 1000 };
-  });
+  return context.store.updateState((state) => ({
+    ...state,
+    notBefore: context.now() + failureWaitSeconds(clampRetryAfter(retryAfter)) * 1000,
+  }));
 }
 
 interface Acquired {
@@ -289,7 +281,6 @@ async function retryOwed(
   known: Install,
   role: Role,
   meta: Meta,
-  pollAfter: number,
   identity: MetaIdentity,
 ): Promise<CycleResult> {
   const wanted = new Map<string, SliceFile>();
@@ -298,13 +289,13 @@ async function retryOwed(
     if (file) wanted.set(slot, file);
   }
   if (!wanted.size) {
-    await settle(context, pollAfter);
+    await settle(context);
     return none();
   }
 
   const got = await acquire(context, wanted, meta, identity);
   if (got.storage) {
-    await settle(context, pollAfter);
+    await settle(context);
     return storageFailure();
   }
   let install: Install | undefined;
@@ -313,7 +304,7 @@ async function retryOwed(
     if (!(await commit(context, install, role))) return writeFailed(context);
   }
   if (got.transient) await backOff(context, got.retryAfter);
-  else await settle(context, pollAfter);
+  else await settle(context);
 
   const conditions = integrityConditions(got);
   return install
@@ -328,13 +319,13 @@ async function poll(context: CycleContext, state: State): Promise<CycleResult> {
 
   switch (answer.kind) {
     case 'unbound':
-      await settle(context, clampPollAfter(state.lastPollAfter));
+      await settle(context);
       return { outcome: 'unbound', conditions: [{ code: 'unbound-key' }] };
     case 'unreleased':
-      await settle(context, clampPollAfter(answer.pollAfter, MIN_POLL_SECONDS));
+      await settle(context);
       return none();
     case 'configuration':
-      await settle(context, clampPollAfter(answer.pollAfter, state.lastPollAfter));
+      await settle(context);
       return {
         outcome: 'failed',
         conditions: [{ code: 'configuration', status: answer.status, ...(answer.code === undefined ? {} : { problemCode: answer.code }) }],
@@ -352,26 +343,25 @@ async function poll(context: CycleContext, state: State): Promise<CycleResult> {
   }
 
   const { meta } = answer;
-  const pollAfter = clampPollAfter(meta.pollAfter, state.lastPollAfter);
   const reject = (current: State): void => {
     current.rejectedChecksums = [...(current.rejectedChecksums ?? []), meta.checksum].slice(-MAX_REJECTED);
   };
 
   if (meta.schemaVersion !== KNOWN_SCHEMA) {
-    await settle(context, pollAfter);
+    await settle(context);
     return { outcome: 'noChange', conditions: [{ code: 'meta-schema', schemaVersion: meta.schemaVersion }] };
   }
   if (state.rejectedChecksums?.includes(meta.checksum)) {
-    await settle(context, pollAfter);
+    await settle(context);
     return none();
   }
 
   const known = state.pending ?? state.active;
   if (known && known.checksum === meta.checksum) {
-    return retryOwed(context, state, known, state.pending ? 'pending' : 'active', meta, pollAfter, identity);
+    return retryOwed(context, state, known, state.pending ? 'pending' : 'active', meta, identity);
   }
   if (state.pending && state.active?.checksum === meta.checksum) {
-    await settle(context, pollAfter, (current) => {
+    await settle(context, (current) => {
       delete current.pending;
     });
     return none();
@@ -380,14 +370,14 @@ async function poll(context: CycleContext, state: State): Promise<CycleResult> {
   // Nothing can be wanted before a locale is chosen, and the next check sees this checksum as new again.
   const locale = context.locale();
   if (locale === undefined) {
-    await settle(context, pollAfter);
+    await settle(context);
     return none();
   }
 
   const fetched = await client.fetchManifest(meta);
   if (fetched.kind !== 'verified') {
     if (fetched.kind === 'checksumMismatch') {
-      await settle(context, pollAfter, reject);
+      await settle(context, reject);
       return { outcome: 'failed', conditions: [{ code: 'manifest-integrity' }] };
     }
     await backOff(context, 'retryAfter' in fetched ? fetched.retryAfter : undefined);
@@ -396,14 +386,14 @@ async function poll(context: CycleContext, state: State): Promise<CycleResult> {
   }
   const { manifest } = fetched;
   if (manifest.schemaVersion !== KNOWN_SCHEMA) {
-    await settle(context, pollAfter, reject);
+    await settle(context, reject);
     return { outcome: 'failed', conditions: [{ code: 'manifest-schema', schemaVersion: manifest.schemaVersion }] };
   }
 
   const wanted = wantedSlots(manifest, locale);
   const got = await acquire(context, wanted, meta, identity);
   if (got.storage) {
-    await settle(context, pollAfter);
+    await settle(context);
     return storageFailure();
   }
 
@@ -413,11 +403,11 @@ async function poll(context: CycleContext, state: State): Promise<CycleResult> {
   const changed =
     Object.keys(known?.slots ?? {}).some((slot) => parseSlot(slot)?.locale === locale && install.slots[slot] === undefined) ||
     Object.entries(install.slots).some(([slot, hash]) => hash !== previous?.slots[slot]);
-  // A release that changes nothing served is still adopted, so the next poll does not fetch its manifest again.
+  // A release that changes nothing served is still adopted, so the next check does not fetch its manifest again.
   const role: Role = changed ? (state.active ? 'pending' : 'active') : state.pending ? 'pending' : 'active';
   if (!(await commit(context, install, role))) return writeFailed(context);
   if (got.transient) await backOff(context, got.retryAfter);
-  else await settle(context, pollAfter);
+  else await settle(context);
 
   const conditions = integrityConditions(got);
   const extra = activeOf(install, role);
@@ -438,22 +428,11 @@ function merge(held: CycleResult, rest: CycleResult): CycleResult {
   return { ...rest, conditions, ...extra };
 }
 
-async function cycle(context: CycleContext, reason: CycleReason): Promise<CycleResult> {
+async function cycle(context: CycleContext): Promise<CycleResult> {
   const held = await heldLocale(context);
-  const notDue: CycleResult = { outcome: 'notDue', conditions: [] };
-
   const state = await context.store.readState();
   const now = context.now();
-  if (reason === 'checkNow') {
-    const last = state.checkNowAt;
-    const tooSoon = last !== undefined && last <= now && last + CHECK_NOW_FLOOR_SECONDS * 1000 > now;
-    // A manual check never shortens a backoff or a Retry-After.
-    if (tooSoon || notBeforeOf(state, now) > now) return merge(held, notDue);
-    await context.store.updateState((current) => ({ ...current, checkNowAt: now }));
-  } else if (dueAt(state, now, context.random()) > now) {
-    return merge(held, notDue);
-  }
-
+  if (dueAt(state, now) > now) return merge(held, { outcome: 'notDue', conditions: [] });
   return merge(held, await poll(context, state));
 }
 
@@ -467,8 +446,8 @@ async function guarded(context: CycleContext, work: () => Promise<CycleResult>):
   }
 }
 
-export function runCycle(context: CycleContext, reason: CycleReason): Promise<CycleResult> {
-  return guarded(context, () => cycle(context, reason));
+export function runCycle(context: CycleContext): Promise<CycleResult> {
+  return guarded(context, () => cycle(context));
 }
 
 /**

@@ -139,9 +139,9 @@ describe('IndexedDbStore', () => {
       const store = await world.open('a');
       await putRawState(world.factory, store.id, { futureField: 'x', lastCheck: 1, languageOverride: 'fr' });
 
-      await store.updateState(({ languageOverride: _removed, ...rest }) => ({ ...rest, backoffStep: 2 }));
+      await store.updateState(({ languageOverride: _removed, ...rest }) => ({ ...rest, notBefore: 2 }));
 
-      expect(await readRawState(world.factory, store.id)).toEqual({ futureField: 'x', lastCheck: 1, backoffStep: 2 });
+      expect(await readRawState(world.factory, store.id)).toEqual({ futureField: 'x', lastCheck: 1, notBefore: 2 });
       world.dispose();
     });
 

@@ -254,7 +254,7 @@ describe('a manifest that cannot be used', () => {
     expect((await w.run()).outcome).toBe('activated');
   });
 
-  it('does not request the manifest for a meta with an unknown schema version, and keeps polling', async () => {
+  it('does not request the manifest for a meta with an unknown schema version, and keeps checking', async () => {
     const w = makeWorld({ release: makeRelease({ metaOverrides: { schemaVersion: 2 } }) });
 
     const result = await w.run();

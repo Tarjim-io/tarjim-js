@@ -15,6 +15,7 @@ describe('events', () => {
     const heard: string[] = [];
     const off = runtime.on('downloaded', (event) => heard.push(event.type));
     world.release(V2);
+    world.clock.advance(60);
     await runtime.checkNow();
     off();
     world.release({ content: { b1: 'v3' }, releaseId: 3 });
@@ -29,6 +30,7 @@ describe('events', () => {
     const heard: string[] = [];
     for (const type of ['downloaded', 'activated', 'languageChanged'] as const) runtime.on(type, () => heard.push(type));
 
+    world.clock.advance(60);
     expect(await runtime.checkNow()).toBe('noChange');
     world.clock.advance(61);
     expect(await runtime.checkNow()).toBe('noChange');
@@ -45,6 +47,7 @@ describe('events', () => {
     });
     runtime.on('downloaded', () => heard.push('second'));
     world.release(V2);
+    world.clock.advance(60);
     await runtime.checkNow();
     expect(heard).toEqual(['second']);
   });
@@ -55,6 +58,7 @@ describe('events', () => {
     const updates = runtime.updates();
     const first = updates.next();
     world.release(V2);
+    world.clock.advance(60);
     await runtime.checkNow();
     expect(await within(first)).toEqual({ done: false, value: { type: 'downloaded' } });
 
@@ -69,6 +73,7 @@ describe('events', () => {
     const heard: string[] = [];
     runtime.on('downloaded', () => heard.push('downloaded'));
     world.release({ manifestOverrides: { note: 'same text' } });
+    world.clock.advance(60);
     await runtime.checkNow();
     await settle();
     expect(heard).toEqual([]);
@@ -84,6 +89,7 @@ describe('subscribe and getVersion', () => {
     let calls = 0;
     runtime.subscribe(() => calls++);
 
+    world.clock.advance(60);
     await runtime.checkNow();
     world.clock.advance(61);
     await runtime.checkNow();
@@ -119,6 +125,7 @@ describe('subscribe and getVersion', () => {
     runtime.subscribe(() => calls++);
     world.release(V2);
 
+    world.clock.advance(60);
     await runtime.checkNow();
     expect(calls).toBe(0);
     expect(runtime.getVersion()).toBe(version);
@@ -166,6 +173,7 @@ describe('subscribe and getVersion', () => {
     runtime.subscribe(() => calls++);
     world.server.on('meta', () => respond(200, { ...world.server.current.meta, track: null }));
 
+    world.clock.advance(60);
     await runtime.checkNow();
 
     expect(calls).toBeGreaterThan(0);
@@ -206,9 +214,18 @@ describe('subscribe and getVersion', () => {
 });
 
 describe('checkNow', () => {
+  it('says notDue straight after the check made at launch', async () => {
+    world = makeWorld();
+    const runtime = await world.startActive();
+    const metas = world.metaCount();
+    expect(await runtime.checkNow()).toBe('notDue');
+    expect(world.metaCount()).toBe(metas);
+  });
+
   it('says noChange when the release is the one held', async () => {
     world = makeWorld();
     const runtime = await world.startActive();
+    world.clock.advance(60);
     expect(await runtime.checkNow()).toBe('noChange');
   });
 
@@ -216,12 +233,14 @@ describe('checkNow', () => {
     world = makeWorld();
     const runtime = await world.startActive();
     world.release(V2);
+    world.clock.advance(60);
     expect(await runtime.checkNow()).toBe('downloaded');
   });
 
-  it('says notDue when asked again too soon', async () => {
+  it('says notDue when asked again within 60 seconds', async () => {
     world = makeWorld();
     const runtime = await world.startActive();
+    world.clock.advance(60);
     await runtime.checkNow();
     const metas = world.metaCount();
     expect(await runtime.checkNow()).toBe('notDue');
@@ -232,6 +251,7 @@ describe('checkNow', () => {
     world = makeWorld();
     const runtime = await world.startActive();
     world.server.on('meta', () => problem(503, 'delivery.unavailable'));
+    world.clock.advance(60);
     expect(await runtime.checkNow()).toBe('failed');
     expect(runtime.t('a')).toBe('v1 b1 en');
   });
@@ -240,6 +260,7 @@ describe('checkNow', () => {
     world = makeWorld();
     const runtime = await world.startActive();
     world.server.on('meta', () => new Error('offline'));
+    world.clock.advance(60);
     expect(await runtime.checkNow()).toBe('failed');
     expect(runtime.t('a')).toBe('v1 b1 en');
   });

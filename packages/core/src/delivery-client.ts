@@ -31,6 +31,7 @@ const QUERY = /^[A-Za-z0-9\-._~!$&'()*+,;=:@/?%]+$/;
 const UNRELEASED = ['delivery.stage_unreleased', 'delivery.track_unreleased', 'delivery.not_published'];
 const CONFIGURATION = [400, 401, 403, 404];
 const STALE_SIGNATURE = [403, 404, 503];
+const VERSION_REQUIRED = 'delivery.app_version_required';
 const META_LIMIT = 1024 * 1024;
 const MANIFEST_LIMIT = 8 * 1024 * 1024;
 
@@ -61,7 +62,7 @@ function concat(chunks: Uint8Array[]): Uint8Array {
 
 export function createDeliveryClient(options: DeliveryClientOptions): DeliveryClient {
   const { deliveryUrl, apiKey, platform } = options;
-  const appVersion = normaliseAppVersion(options.appVersion);
+  let appVersion = normaliseAppVersion(options.appVersion);
   const timeoutMs = options.timeoutMs ?? 20000;
   const send = options.fetch;
   const keyHeaders = { 'X-Tarjim-Apikey': apiKey, 'X-Tarjim-Api-Version': API_VERSION };
@@ -124,39 +125,52 @@ export function createDeliveryClient(options: DeliveryClientOptions): DeliveryCl
       ['platform', platform],
       ['sdkVersion', SDK_VERSION],
       ['release', identity.release],
-      ['pollSeconds', identity.pollSeconds],
       ['language', identity.language],
       ['osVersion', identity.osVersion],
       ['appBuild', identity.appBuild],
       ['installId', identity.installId],
     ];
     // appVersion is reduced to digits and dots, so it is sent as is.
-    let url = `${deliveryUrl}?appVersion=${appVersion}`;
+    const query = appVersion === null ? [] : [`appVersion=${appVersion}`];
     for (const [name, value] of fields) {
-      if (value !== undefined && value !== null) url += `&${name}=${encodeURIComponent(String(value))}`;
+      if (value !== undefined && value !== null) query.push(`${name}=${encodeURIComponent(String(value))}`);
     }
-    return url;
+    return `${deliveryUrl}?${query.join('&')}`;
   }
 
   function decodeMeta(bytes: Uint8Array | undefined): MetaOutcome {
     const m = parseJson(bytes);
     if (!isRecord(m)) return { kind: 'unreadable' };
-    if (typeof m['track'] !== 'string') return { kind: 'unbound' };
+    // A server names an unbound key's binding `track: null`. Such a key acts with its creator's rights,
+    // so the client stops. A server that answers an unbound key with 401 never reaches this branch, and
+    // a meta that carries neither name is not this answer.
+    const binding = [m['distribution'], m['track']];
+    if (!binding.some((name) => typeof name === 'string') && binding.some((name) => name !== undefined)) return { kind: 'unbound' };
     const complete =
       typeof m['checksum'] === 'string' &&
       HEX64.test(m['checksum']) &&
       typeof m['manifestUrl'] === 'string' &&
       typeof m['slicesBaseUrl'] === 'string' &&
       typeof m['schemaVersion'] === 'number' &&
-      typeof m['pollAfter'] === 'number' &&
-      Number.isFinite(m['pollAfter']) &&
-      m['pollAfter'] >= 0 &&
       (typeof m['releaseId'] === 'string' || typeof m['releaseId'] === 'number') &&
       (m['authenticated'] === true || (typeof m['signedQuery'] === 'string' && m['signedQuery'] !== ''));
     return complete ? { kind: 'received', meta: m as Meta } : { kind: 'unreadable' };
   }
 
   async function fetchMeta(identity: MetaIdentity = {}): Promise<MetaOutcome> {
+    try {
+      const outcome = await readMeta(identity);
+      if (appVersion !== null || outcome.kind !== 'configuration' || outcome.status !== 400 || outcome.code !== VERSION_REQUIRED) return outcome;
+      // Transitional: goes when the API stops requiring appVersion. Until then a client with no version
+      // would get nothing at all, so it is served as the oldest app rather than the newest.
+      appVersion = '0.0.0';
+      return await readMeta(identity);
+    } catch {
+      return { kind: 'network' };
+    }
+  }
+
+  async function readMeta(identity: MetaIdentity): Promise<MetaOutcome> {
     try {
       const answer = await get(metaUrl(identity), { headers: keyHeaders, cache: 'no-store' }, (s) => s === 200 || CONFIGURATION.includes(s), META_LIMIT);
       const { status } = answer;
@@ -167,9 +181,8 @@ export function createDeliveryClient(options: DeliveryClientOptions): DeliveryCl
 
       const body = parseJson(answer.bytes);
       const code = isRecord(body) && typeof body['code'] === 'string' ? body['code'] : undefined;
-      const hint = isRecord(body) && Number.isSafeInteger(body['pollAfter']) && (body['pollAfter'] as number) >= 0 ? (body['pollAfter'] as number) : undefined;
-      if (status === 404 && code !== undefined && UNRELEASED.includes(code)) return { kind: 'unreleased', ...opt('pollAfter', hint) };
-      return { kind: 'configuration', status, ...opt('code', code), ...opt('pollAfter', hint) };
+      if (status === 404 && code !== undefined && UNRELEASED.includes(code)) return { kind: 'unreleased' };
+      return { kind: 'configuration', status, ...opt('code', code) };
     } catch {
       return { kind: 'network' };
     }

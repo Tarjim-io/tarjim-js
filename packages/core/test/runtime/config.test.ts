@@ -26,7 +26,8 @@ describe('a configuration that cannot work', () => {
 
     expect(typeof runtime.t('a')).toBe('string');
     if ('deliveryUrl' in bad || 'apiKey' in bad) expect(runtime.t('a')).toBe('embedded a');
-    await world.timers.advance(3_600_000);
+    world.clock.advance(3600);
+    world.returnToForeground();
     await settle();
     expect(world.server.log).toEqual([]);
     expect(world.fetched).toEqual([]);
@@ -94,7 +95,8 @@ describe('an insecure context', () => {
     world = makeWorld({ secureContext: false });
     const runtime = await within(world.start());
     await runtime.checkNow();
-    await world.timers.advance(3_600_000);
+    world.clock.advance(3600);
+    world.returnToForeground();
 
     expect(runtime.t('a')).toBe('embedded a');
     expect(world.codes()).toEqual(['insecure-context']);
@@ -114,7 +116,8 @@ describe('storage that cannot be used', () => {
   it('serves the embedded text and never sends a request', async () => {
     world = makeWorld({ degraded: true });
     const runtime = await within(world.start());
-    await world.timers.advance(3_600_000);
+    world.clock.advance(3600);
+    world.returnToForeground();
     await runtime.checkNow();
     await settle();
 
@@ -161,12 +164,21 @@ describe('the app version', () => {
     expect(world.codes()).not.toContain('app-version-normalised');
   });
 
-  it('falls back to 0.0.0 for something that is not a version, and still runs', async () => {
+  it('is left out for something that is not a version, reported once, and the runtime still runs', async () => {
     world = makeWorld();
     const runtime = await world.startActive({ appVersion: 'banana' });
     expect(runtime.t('a')).toBe('v1 b1 en');
-    expect(world.server.metaQuery(0)['appVersion']).toBe('0.0.0');
+    expect(world.server.metaQuery(0)).not.toHaveProperty('appVersion');
     expect(world.reportsOf('app-version-normalised')).toHaveLength(1);
+    expect(world.reportsOf('app-version-normalised')[0]!.details).toEqual({ from: 'banana', to: 'none' });
+  });
+
+  it('is left out, and not reported, when the app gives none', async () => {
+    world = makeWorld();
+    const runtime = await world.startActive({ appVersion: undefined });
+    expect(runtime.t('a')).toBe('v1 b1 en');
+    expect(world.server.metaQuery(0)).not.toHaveProperty('appVersion');
+    expect(world.codes()).not.toContain('app-version-normalised');
   });
 });
 

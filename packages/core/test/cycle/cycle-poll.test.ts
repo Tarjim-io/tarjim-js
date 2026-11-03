@@ -4,7 +4,7 @@ import { hashOf, installed, makeRelease, makeWorld } from '../helpers/cycle-worl
 import { respond } from '../support.js';
 
 describe('the first check', () => {
-  it('installs the release at once as the active one and records the poll', async () => {
+  it('installs the release at once as the active one and records the check', async () => {
     const w = makeWorld();
     const result = await w.run();
 
@@ -16,7 +16,6 @@ describe('the first check', () => {
     expect(state.active?.owed).toEqual([]);
     expect(result.install).toEqual(state.active);
     expect(state.lastCheck).toBe(w.clock.now());
-    expect(state.lastPollAfter).toBe(900);
     expect(await w.holds(hashOf(w.server.current, 'b1', 'en'))).toBe(true);
   });
 
@@ -28,38 +27,32 @@ describe('the first check', () => {
     expect(w.server.objectCount(hashOf(w.server.current, 'b1', 'fr'))).toBe(1);
     expect(w.server.objectCount(hashOf(w.server.current, 'b1', 'en'))).toBe(0);
   });
-
-  it('takes the poll interval from the meta, kept within bounds', async () => {
-    const w = makeWorld({ release: makeRelease({ pollAfter: 5 }) });
-    await w.run();
-    expect((await w.state()).lastPollAfter).toBe(60);
-  });
 });
 
-describe('the poll interval', () => {
-  it('sends no meta request before the interval has passed', async () => {
+describe('the 60 second floor between checks', () => {
+  it('sends no meta request before 60 seconds have passed since the last check', async () => {
     const w = await installed();
-    w.clock.advance(-1000 + 899);
+    w.clock.advance(-1000 + 59);
     const before = w.server.count('meta');
 
     expect((await w.run()).outcome).toBe('notDue');
     expect(w.server.count('meta')).toBe(before);
 
-    w.clock.advance(2);
+    w.clock.advance(1);
     expect((await w.run()).outcome).toBe('noChange');
     expect(w.server.count('meta')).toBe(before + 1);
   });
 
   it('stays quiet after a reload, which builds a new client over the same store', async () => {
     const w = await installed();
-    w.clock.advance(-1000 + 300);
+    w.clock.advance(-1000 + 30);
     const before = w.server.count('meta');
 
-    expect((await runCycle(w.tab(), 'scheduled')).outcome).toBe('notDue');
+    expect((await runCycle(w.tab())).outcome).toBe('notDue');
     expect(w.server.count('meta')).toBe(before);
 
-    w.clock.advance(700);
-    expect((await runCycle(w.tab(), 'scheduled')).outcome).toBe('noChange');
+    w.clock.advance(30);
+    expect((await runCycle(w.tab())).outcome).toBe('noChange');
     expect(w.server.count('meta')).toBe(before + 1);
   });
 
@@ -67,25 +60,13 @@ describe('the poll interval', () => {
     const w = await installed();
     expect((await w.run()).outcome).toBe('noChange');
     const before = w.server.count('meta');
-    w.clock.advance(100);
+    w.clock.advance(30);
 
-    expect((await runCycle(w.tab(), 'scheduled')).outcome).toBe('notDue');
+    expect((await runCycle(w.tab())).outcome).toBe('notDue');
     expect(w.server.count('meta')).toBe(before);
   });
 
-  it('spreads the next check by up to a fifth of the interval with the random value', async () => {
-    const w = makeWorld({ random: 1 });
-    await w.run();
-    const before = w.server.count('meta');
-
-    w.clock.advance(1000);
-    expect((await w.run()).outcome).toBe('notDue');
-    w.clock.advance(81);
-    expect((await w.run()).outcome).toBe('noChange');
-    expect(w.server.count('meta')).toBe(before + 1);
-  });
-
-  it('treats a last check in the future as now, so polling is not blocked', async () => {
+  it('treats a last check in the future as now, so checks are not blocked', async () => {
     const w = await installed();
     await w.store.updateState((state) => ({ ...state, lastCheck: w.clock.now() + 1_000_000_000 }));
     const before = w.server.count('meta');
@@ -102,7 +83,7 @@ describe('two checks at once', () => {
     const gate = w.server.hold('meta');
 
     const first = w.run();
-    const second = runCycle(w.tab(), 'scheduled');
+    const second = runCycle(w.tab());
     for (const started of [first, second]) started.catch(() => undefined);
     await new Promise((resolve) => setTimeout(resolve, 5));
     gate.release();
@@ -120,7 +101,7 @@ describe('two checks at once', () => {
     first.catch(() => undefined);
     await new Promise((resolve) => setTimeout(resolve, 5));
 
-    expect((await runCycle(w.tab(), 'checkNow')).outcome).toBe('busy');
+    expect((await runCycle(w.tab())).outcome).toBe('busy');
     expect(w.server.count('meta')).toBe(1);
 
     gate.release();
@@ -129,20 +110,19 @@ describe('two checks at once', () => {
 });
 
 describe('the identity sent with the meta request', () => {
-  it('sends the release 0 and the language, and no poll interval, on the first check', async () => {
+  it('sends the release 0, the language and the identity on the first check', async () => {
     const w = makeWorld({ locale: 'fr' });
     w.selection.identity = { installId: 'install-1', osVersion: '14.2' };
     await w.run();
 
     const query = w.server.metaQuery();
     expect(query).toMatchObject({ release: '0', language: 'fr', installId: 'install-1', osVersion: '14.2' });
-    expect(query).not.toHaveProperty('pollSeconds');
   });
 
-  it('sends the held release and the last poll interval afterwards', async () => {
-    const w = await installed({ release: makeRelease({ releaseId: 12, pollAfter: 600 }) });
+  it('sends the held release afterwards', async () => {
+    const w = await installed({ release: makeRelease({ releaseId: 12 }) });
     await w.run();
-    expect(w.server.metaQuery()).toMatchObject({ release: '12', pollSeconds: '600', language: 'en' });
+    expect(w.server.metaQuery()).toMatchObject({ release: '12', language: 'en' });
   });
 
   it('sends the newest known release, which is the pending one when there is one', async () => {
@@ -177,80 +157,50 @@ describe('the identity sent with the meta request', () => {
 });
 
 describe('a manual check', () => {
-  it('goes ahead inside the poll interval, once per 60 seconds', async () => {
+  it('is held to the same floor as a launch check, in every context of one store', async () => {
     const w = await installed();
     w.clock.advance(-1000 + 10);
     const before = w.server.count('meta');
 
-    expect((await w.run('checkNow')).outcome).toBe('noChange');
-    expect(w.server.count('meta')).toBe(before + 1);
-
-    w.clock.advance(30);
-    expect((await w.run('checkNow')).outcome).toBe('notDue');
-    expect(w.server.count('meta')).toBe(before + 1);
-
-    w.clock.advance(31);
-    expect((await w.run('checkNow')).outcome).toBe('noChange');
-    expect(w.server.count('meta')).toBe(before + 2);
-  });
-
-  it('keeps the floor across reloads and tabs of one store', async () => {
-    const w = await installed();
-    w.clock.advance(-1000 + 10);
-    await w.run('checkNow');
-    const before = w.server.count('meta');
-
-    w.clock.advance(20);
-    expect((await runCycle(w.tab(), 'checkNow')).outcome).toBe('notDue');
-    w.clock.advance(20);
-    expect((await runCycle(w.tab(), 'checkNow')).outcome).toBe('notDue');
+    expect((await w.run()).outcome).toBe('notDue');
+    expect((await runCycle(w.tab())).outcome).toBe('notDue');
+    w.clock.advance(49);
+    expect((await runCycle(w.tab())).outcome).toBe('notDue');
     expect(w.server.count('meta')).toBe(before);
 
-    w.clock.advance(21);
-    expect((await runCycle(w.tab(), 'checkNow')).outcome).toBe('noChange');
+    w.clock.advance(1);
+    expect((await runCycle(w.tab())).outcome).toBe('noChange');
     expect(w.server.count('meta')).toBe(before + 1);
   });
 
-  it('does not move the floor when it is refused', async () => {
+  it('does not postpone the next check when it is refused', async () => {
     const w = await installed();
-    w.clock.advance(-1000 + 10);
-    await w.run('checkNow');
-    const first = w.clock.now();
+    w.clock.advance(-1000 + 30);
+    expect((await w.run()).outcome).toBe('notDue');
 
     w.clock.advance(30);
-    expect((await w.run('checkNow')).outcome).toBe('notDue');
-    expect((await w.state()).checkNowAt).toBe(first);
-
-    w.clock.advance(31);
-    expect((await w.run('checkNow')).outcome).toBe('noChange');
-    expect((await w.state()).checkNowAt).toBe(w.clock.now());
+    expect((await w.run()).outcome).toBe('noChange');
   });
 
-  it('does not set the floor when a backoff refuses it', async () => {
+  it('cannot be hurried past a Retry-After', async () => {
     const w = await installed();
     w.server.on('meta', () => respond(503, 'busy', { headers: { 'Content-Type': 'text/plain', 'Retry-After': '600' } }), { times: 1 });
     await w.run();
 
-    w.clock.advance(100);
-    expect((await w.run('checkNow')).outcome).toBe('notDue');
-    expect((await w.state()).checkNowAt).toBeUndefined();
+    w.clock.advance(599);
+    expect((await w.run()).outcome).toBe('notDue');
+    w.clock.advance(1);
+    expect((await w.run()).outcome).toBe('noChange');
   });
 
-  it('goes ahead after the clock moved back past a backoff it had written', async () => {
+  it('goes ahead after the clock moved back past a wait it had written', async () => {
     const w = await installed();
     w.server.on('meta', () => respond(503, 'busy', { headers: { 'Content-Type': 'text/plain', 'Retry-After': '600' } }), { times: 1 });
     await w.run();
     const before = w.server.count('meta');
 
     w.clock.advance(-7 * 86_400_000);
-    expect((await w.run('checkNow')).outcome).toBe('noChange');
+    expect((await w.run()).outcome).toBe('noChange');
     expect(w.server.count('meta')).toBe(before + 1);
-  });
-
-  it('is not held back by a scheduled check made just before', async () => {
-    const w = await installed();
-    w.clock.advance(5000);
-    expect((await w.run('scheduled')).outcome).toBe('noChange');
-    expect((await w.run('checkNow')).outcome).toBe('noChange');
   });
 });

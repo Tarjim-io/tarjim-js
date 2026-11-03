@@ -139,7 +139,7 @@ describe('what each condition is called', () => {
 });
 
 describe('unknown versions', () => {
-  it('keeps the held text and keeps polling when the meta version is unknown', async () => {
+  it('keeps the held text and keeps checking when the meta version is unknown', async () => {
     world = makeWorld();
     const runtime = await world.startActive();
     const before = world.metaCount();

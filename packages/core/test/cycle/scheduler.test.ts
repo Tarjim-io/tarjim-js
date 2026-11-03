@@ -35,212 +35,225 @@ interface Rig {
   scheduler: Scheduler;
   check: ReturnType<typeof vi.fn>;
   setDue(ms: number): void;
-  setTimer: ReturnType<typeof vi.fn>;
+  setTimeoutSpy: ReturnType<typeof vi.spyOn>;
   visibility: ReturnType<typeof fakeVisibility>;
 }
 
 function rig(options: { dueIn?: number; visible?: boolean; noVisibility?: boolean; check?: () => Promise<unknown>; nextDue?: () => number } = {}): Rig {
   let due = Date.now() + (options.dueIn ?? 0);
   const visibility = fakeVisibility(options.visible ?? true);
-  const setTimer = vi.fn((callback: () => void, delay: number) => setTimeout(callback, delay));
   const check = vi.fn(async () => {
     if (options.check) await options.check();
     // A real check moves the next due time on.
-    due = Date.now() + 300_000;
+    due = Date.now() + 60_000;
   });
   const scheduler = createScheduler({
     check,
     nextDueAt: async () => (options.nextDue ? options.nextDue() : due),
     now: () => Date.now(),
-    timers: { set: setTimer, clear: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>) },
     ...(options.noVisibility ? {} : { visibility: visibility.port }),
   });
-  return { scheduler, check, setDue: (ms) => (due = ms), setTimer, visibility };
+  return { scheduler, check, setDue: (ms) => (due = ms), setTimeoutSpy: vi.spyOn(globalThis, 'setTimeout'), visibility };
 }
+
+const leaveAndReturn = async (r: Rig): Promise<void> => {
+  r.visibility.set(false);
+  r.visibility.set(true);
+  await vi.advanceTimersByTimeAsync(0);
+};
 
 beforeEach(() => {
   vi.useFakeTimers();
   vi.setSystemTime(1_700_000_000_000);
 });
-afterEach(() => vi.useRealTimers());
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.useRealTimers();
+});
 
-describe('starting', () => {
-  it('checks at once when a check is due, with no delay', async () => {
+describe('at launch', () => {
+  it('checks at once when a check is due', async () => {
     const r = rig({ dueIn: -5_000 });
     r.scheduler.start();
     await vi.advanceTimersByTimeAsync(0);
+
     expect(r.check).toHaveBeenCalledTimes(1);
     r.scheduler.stop();
   });
 
-  it('waits for the due time when nothing is due yet', async () => {
-    const r = rig({ dueIn: 60_000 });
+  it('does not check when nothing is due, and does not wait for it', async () => {
+    const r = rig({ dueIn: 30_000 });
     r.scheduler.start();
-    await vi.advanceTimersByTimeAsync(59_000);
-    expect(r.check).not.toHaveBeenCalled();
-    await vi.advanceTimersByTimeAsync(1_000);
-    expect(r.check).toHaveBeenCalledTimes(1);
-    r.scheduler.stop();
-  });
+    await vi.advanceTimersByTimeAsync(DAY_MS);
 
-  it('keeps one timer armed, and re-arms for the next due time after a check', async () => {
-    const r = rig({ dueIn: 60_000 });
-    r.scheduler.start();
-    await vi.advanceTimersByTimeAsync(0);
-    expect(vi.getTimerCount()).toBe(1);
-
-    await vi.advanceTimersByTimeAsync(60_000);
-    expect(r.check).toHaveBeenCalledTimes(1);
-    expect(vi.getTimerCount()).toBe(1);
-
-    await vi.advanceTimersByTimeAsync(299_000);
-    expect(r.check).toHaveBeenCalledTimes(1);
-    await vi.advanceTimersByTimeAsync(1_000);
-    expect(r.check).toHaveBeenCalledTimes(2);
-    await vi.advanceTimersByTimeAsync(300_000);
-    expect(r.check).toHaveBeenCalledTimes(3);
-    r.scheduler.stop();
-  });
-
-  it('still runs on its timer when there is no visibility port', async () => {
-    const r = rig({ dueIn: 60_000, noVisibility: true });
-    r.scheduler.start();
-    await vi.advanceTimersByTimeAsync(60_000);
-    expect(r.check).toHaveBeenCalledTimes(1);
-    r.scheduler.stop();
-  });
-});
-
-describe('a hidden tab', () => {
-  it('does not check when its timer fires while hidden', async () => {
-    const r = rig({ dueIn: 60_000 });
-    r.scheduler.start();
-    await vi.advanceTimersByTimeAsync(0);
-    r.visibility.set(false);
-    await vi.advanceTimersByTimeAsync(10 * 60_000);
     expect(r.check).not.toHaveBeenCalled();
     r.scheduler.stop();
   });
 
-  it('checks as soon as it becomes visible with a check overdue', async () => {
-    const r = rig({ dueIn: 60_000 });
+  it('checks with no visibility port too', async () => {
+    const r = rig({ dueIn: 0, noVisibility: true });
     r.scheduler.start();
     await vi.advanceTimersByTimeAsync(0);
-    r.visibility.set(false);
-    await vi.advanceTimersByTimeAsync(10 * 60_000);
-    r.visibility.set(true);
-    await vi.advanceTimersByTimeAsync(0);
+
     expect(r.check).toHaveBeenCalledTimes(1);
     r.scheduler.stop();
   });
 
-  it('does not check on becoming visible when nothing is overdue', async () => {
-    const r = rig({ dueIn: 600_000 });
+  it('makes no check while hidden, and one on the first return', async () => {
+    const r = rig({ dueIn: 0, visible: false });
     r.scheduler.start();
-    await vi.advanceTimersByTimeAsync(0);
-    r.visibility.set(false);
-    await vi.advanceTimersByTimeAsync(60_000);
-    r.visibility.set(true);
-    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(DAY_MS);
     expect(r.check).not.toHaveBeenCalled();
 
-    await vi.advanceTimersByTimeAsync(540_000);
-    expect(r.check).toHaveBeenCalledTimes(1);
-    r.scheduler.stop();
-  });
-
-  it('goes back to its timer after the check made on becoming visible', async () => {
-    const r = rig({ dueIn: 60_000 });
-    r.scheduler.start();
-    await vi.advanceTimersByTimeAsync(0);
-    r.visibility.set(false);
-    await vi.advanceTimersByTimeAsync(120_000);
     r.visibility.set(true);
     await vi.advanceTimersByTimeAsync(0);
+
     expect(r.check).toHaveBeenCalledTimes(1);
-    await vi.advanceTimersByTimeAsync(300_000);
-    expect(r.check).toHaveBeenCalledTimes(2);
     r.scheduler.stop();
   });
-});
 
-describe('overlapping checks', () => {
-  it('never runs two checks at once', async () => {
-    const gate = deferred();
-    let running = 0;
-    let most = 0;
+  it('survives a store that cannot be read, and checks on the next return', async () => {
+    let readable = false;
     const r = rig({
-      dueIn: -1,
-      check: async () => {
-        running += 1;
-        most = Math.max(most, running);
-        await gate.promise;
-        running -= 1;
+      nextDue: () => {
+        if (!readable) throw new Error('no');
+        return 0;
       },
     });
     r.scheduler.start();
     await vi.advanceTimersByTimeAsync(0);
+    expect(r.check).not.toHaveBeenCalled();
+
+    readable = true;
+    await leaveAndReturn(r);
+
+    expect(r.check).toHaveBeenCalledTimes(1);
+    r.scheduler.stop();
+  });
+});
+
+describe('with no timer', () => {
+  it('sets none when nothing is due at launch', async () => {
+    const r = rig({ dueIn: 30_000 });
+    r.scheduler.start();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect((r.setTimeoutSpy.mock.calls as unknown[][]).filter((call) => (call[1] as number) > 0)).toEqual([]);
+    r.scheduler.stop();
+  });
+
+  it('does not check again while a page stays open', async () => {
+    const r = rig({ dueIn: 0 });
+    r.scheduler.start();
+    await vi.advanceTimersByTimeAsync(DAY_MS);
+
+    expect(r.check).toHaveBeenCalledTimes(1);
+    r.scheduler.stop();
+  });
+
+  it('does not retry a check that throws until the next return', async () => {
+    const r = rig({
+      dueIn: 0,
+      nextDue: () => 0,
+      check: async () => {
+        throw new Error('no');
+      },
+    });
+    r.scheduler.start();
+    await vi.advanceTimersByTimeAsync(DAY_MS);
     expect(r.check).toHaveBeenCalledTimes(1);
 
-    r.setDue(Date.now() - 1_000);
+    await leaveAndReturn(r);
+
+    expect(r.check).toHaveBeenCalledTimes(2);
+    r.scheduler.stop();
+  });
+});
+
+describe('on return to the foreground', () => {
+  it('checks when a check is due', async () => {
+    const r = rig({ dueIn: 0 });
+    r.scheduler.start();
+    await vi.advanceTimersByTimeAsync(0);
+
+    vi.setSystemTime(Date.now() + 60_000);
+    await leaveAndReturn(r);
+
+    expect(r.check).toHaveBeenCalledTimes(2);
+    r.scheduler.stop();
+  });
+
+  it('does not check inside the floor', async () => {
+    const r = rig({ dueIn: 0 });
+    r.scheduler.start();
+    await vi.advanceTimersByTimeAsync(0);
+
+    vi.setSystemTime(Date.now() + 59_000);
+    await leaveAndReturn(r);
+
+    expect(r.check).toHaveBeenCalledTimes(1);
+    r.scheduler.stop();
+  });
+
+  it('does nothing when the page is going away', async () => {
+    const r = rig({ dueIn: 30_000 });
+    r.scheduler.start();
+    await vi.advanceTimersByTimeAsync(0);
+    r.setDue(0);
+
     r.visibility.set(false);
-    r.visibility.set(true);
-    await vi.advanceTimersByTimeAsync(120_000);
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(r.check).not.toHaveBeenCalled();
+    r.scheduler.stop();
+  });
+
+  it('never runs two checks at once', async () => {
+    const gate = deferred();
+    const r = rig({ dueIn: 0, nextDue: () => 0, check: () => gate.promise });
+    r.scheduler.start();
+    await vi.advanceTimersByTimeAsync(0);
+
+    await leaveAndReturn(r);
     expect(r.check).toHaveBeenCalledTimes(1);
 
     gate.resolve();
     await vi.advanceTimersByTimeAsync(0);
-    expect(most).toBe(1);
     r.scheduler.stop();
   });
 });
 
 describe('stopping', () => {
-  it('clears the timer and the visibility listener', async () => {
-    const r = rig({ dueIn: 60_000 });
+  it('removes the visibility listener', async () => {
+    const r = rig({ dueIn: 30_000 });
     r.scheduler.start();
     await vi.advanceTimersByTimeAsync(0);
-    expect(vi.getTimerCount()).toBe(1);
     expect(r.visibility.listeners.size).toBe(1);
 
     r.scheduler.stop();
-    expect(vi.getTimerCount()).toBe(0);
+
     expect(r.visibility.listeners.size).toBe(0);
-    await vi.advanceTimersByTimeAsync(10 * 60_000);
+  });
+
+  it('skips a check it was still deciding on', async () => {
+    const r = rig({ dueIn: 0 });
+    r.scheduler.start();
+    r.scheduler.stop();
+    await vi.advanceTimersByTimeAsync(0);
+
     expect(r.check).not.toHaveBeenCalled();
   });
 
-  it('does not re-arm after a check that was running when it stopped', async () => {
+  it('checks no more after a check that was running when it stopped', async () => {
     const gate = deferred();
-    const r = rig({ dueIn: -1, check: () => gate.promise });
+    const r = rig({ dueIn: 0, nextDue: () => 0, check: () => gate.promise });
     r.scheduler.start();
     await vi.advanceTimersByTimeAsync(0);
-    expect(r.check).toHaveBeenCalledTimes(1);
 
     r.scheduler.stop();
     gate.resolve();
-    await vi.advanceTimersByTimeAsync(10 * 60_000);
-    expect(r.check).toHaveBeenCalledTimes(1);
-    expect(vi.getTimerCount()).toBe(0);
-  });
-});
-
-describe('a far-off due time', () => {
-  it('arms no timer for longer than a day, and arms again until the time comes', async () => {
-    const thirtyDays = 30 * DAY_MS;
-    const r = rig({ dueIn: thirtyDays });
-    r.scheduler.start();
-    await vi.advanceTimersByTimeAsync(0);
-    expect(r.setTimer).toHaveBeenCalledTimes(1);
-    expect(r.setTimer.mock.calls[0]![1]).toBe(DAY_MS);
-
     await vi.advanceTimersByTimeAsync(DAY_MS);
-    expect(r.check).not.toHaveBeenCalled();
-    expect(r.setTimer).toHaveBeenCalledTimes(2);
-    for (const call of r.setTimer.mock.calls) expect(call[1]).toBeLessThanOrEqual(DAY_MS);
 
-    await vi.advanceTimersByTimeAsync(thirtyDays - DAY_MS);
     expect(r.check).toHaveBeenCalledTimes(1);
-    r.scheduler.stop();
   });
 });

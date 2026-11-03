@@ -101,6 +101,7 @@ export function rig(worldOptions: WorldOptions = {}) {
     /** A release that replaces the held text, downloaded and left pending. */
     async downloadNext(tag: string, releaseId: number): Promise<string> {
       world.release({ content: { b1: tag }, releaseId });
+      world.clock.advance(60);
       let result = '';
       await act(async () => {
         result = await api.runtime().checkNow();

@@ -1,6 +1,6 @@
 import { MemoryStore, runCycle } from '../../src/internal.js';
 import type { Store } from '../../src/index.js';
-import type { CycleContext, CycleReason } from '../../src/internal.js';
+import type { CycleContext } from '../../src/internal.js';
 import { DELIVERY_URL, clientFor, queryOf, simpleRelease } from '../support.js';
 import type { Release, ReleaseOptions } from '../support.js';
 
@@ -154,7 +154,6 @@ export type Clock = ReturnType<typeof makeClock>;
 
 export interface Selection {
   locale: string | undefined;
-  random: number;
   identity: ReturnType<CycleContext['identity']>;
 }
 
@@ -165,7 +164,6 @@ export function makeContext(server: Server, store: Store, clock: Clock, selectio
     client: clientFor(server.fetch),
     sdkVersion: '0.1.0',
     now: clock.now,
-    random: () => selection.random,
     locale: () => selection.locale,
     identity: () => selection.identity,
   };
@@ -173,11 +171,11 @@ export function makeContext(server: Server, store: Store, clock: Clock, selectio
 
 let storeCount = 0;
 
-export function makeWorld(options: { release?: Release; store?: Store; locale?: string; random?: number } = {}) {
+export function makeWorld(options: { release?: Release; store?: Store; locale?: string } = {}) {
   const server = makeServer(options.release ?? makeRelease());
   const clock = makeClock();
   const store = options.store ?? new MemoryStore(`cycle-store-${++storeCount}`);
-  const selection: Selection = { locale: options.locale ?? 'en', random: options.random ?? 0, identity: {} };
+  const selection: Selection = { locale: options.locale ?? 'en', identity: {} };
   const tab = () => makeContext(server, store, clock, selection);
   const ctx = tab();
   return {
@@ -188,7 +186,7 @@ export function makeWorld(options: { release?: Release; store?: Store; locale?: 
     ctx,
     /** Another context over the same store and clock. */
     tab,
-    run: (reason: CycleReason = 'scheduled') => runCycle(ctx, reason),
+    run: () => runCycle(ctx),
     state: () => store.readState(),
     /** Is a slice with this hash held and intact? */
     async holds(hash: string) {
@@ -198,7 +196,7 @@ export function makeWorld(options: { release?: Release; store?: Store; locale?: 
 }
 export type World = ReturnType<typeof makeWorld>;
 
-/** Runs the first check against an empty store, then moves the clock past the poll interval. */
+/** Runs the first check against an empty store, then moves the clock past the check floor. */
 export async function installed(options: Parameters<typeof makeWorld>[0] = {}): Promise<World> {
   const world = makeWorld(options);
   await world.run();

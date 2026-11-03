@@ -70,6 +70,7 @@ describe('setLanguage with a download waiting', () => {
     world = makeWorld(THREE);
     const runtime = await world.startActive();
     world.release({ ...V2, locales: ['en', 'fr', 'de'] });
+    world.clock.advance(60);
     await runtime.checkNow();
     expect((await world.state()).pending?.releaseId).toBe(2);
 
@@ -86,6 +87,7 @@ describe('setLanguage with a download waiting', () => {
     world = makeWorld(THREE);
     const runtime = await world.startActive();
     world.release({ ...V2, locales: ['en', 'fr', 'de'] });
+    world.clock.advance(60);
     await runtime.checkNow();
     await runtime.setLanguage('fr');
 

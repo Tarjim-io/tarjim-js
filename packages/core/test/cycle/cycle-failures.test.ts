@@ -35,14 +35,13 @@ describe('a meta request that fails', () => {
     const state = await w.state();
     expect(state.active).toEqual(held);
     expect(state.pending).toBeUndefined();
-    expect(state.backoffStep).toBe(1);
-    expect(state.notBefore!).toBeGreaterThan(w.clock.now());
+    expect(state.notBefore).toBe(w.clock.now() + 60_000);
     expect(await w.holds(hashOf(w.server.current, 'b1', 'en'))).toBe(true);
     expect(w.server.count('manifest')).toBe(1);
 
     w.clock.set(state.notBefore! + 1);
     expect((await w.run()).outcome).toBe('noChange');
-    expect((await w.state()).backoffStep ?? 0).toBe(0);
+    expect((await w.state()).notBefore).toBeUndefined();
   });
 
   it('leaves an empty store empty', async () => {
@@ -54,27 +53,26 @@ describe('a meta request that fails', () => {
     expect(state.pending).toBeUndefined();
   });
 
-  it('waits longer after each failure, never past the poll interval', async () => {
+  it('waits 60 seconds after every failure, however many have happened', async () => {
     const w = await installed();
     w.server.on('meta', serverError);
 
-    const delays: number[] = [];
     for (let i = 0; i < 8; i++) {
-      delays.push(await delayAfterFailure(w));
+      expect(await delayAfterFailure(w)).toBe(60_000);
       w.clock.set((await w.state()).notBefore! + 1);
     }
-
-    expect((await w.state()).backoffStep).toBe(8);
-    for (let i = 1; i < 4; i++) expect(delays[i]!).toBeGreaterThan(delays[i - 1]!);
-    expect(delays[0]!).toBeGreaterThan(0);
-    expect(delays[7]).toBe(900_000);
-    expect(Math.max(...delays)).toBeLessThanOrEqual(900_000);
   });
 
-  it('waits at least as long as the server asked, even beyond the poll interval', async () => {
+  it('waits at least 60 seconds even when the server asked for less', async () => {
+    const w = await installed();
+    w.server.on('meta', waitedFor(10), { times: 1 });
+    expect(await delayAfterFailure(w)).toBe(60_000);
+  });
+
+  it('waits as long as the server asked when that is more than 60 seconds', async () => {
     const w = await installed();
     w.server.on('meta', waitedFor(1200), { times: 1 });
-    expect(await delayAfterFailure(w)).toBeGreaterThanOrEqual(1_200_000);
+    expect(await delayAfterFailure(w)).toBe(1_200_000);
   });
 
   it('honours Retry-After on a throttled answer', async () => {
@@ -83,7 +81,7 @@ describe('a meta request that fails', () => {
     expect(await delayAfterFailure(w)).toBeGreaterThanOrEqual(600_000);
   });
 
-  it('sends nothing before the backoff is over, then tries again', async () => {
+  it('sends nothing before the wait is over, then tries again', async () => {
     const w = await installed();
     w.server.on('meta', waitedFor(600), { times: 1 });
     await w.run();
@@ -98,25 +96,25 @@ describe('a meta request that fails', () => {
     expect(w.server.count('meta')).toBe(before + 1);
   });
 
-  it('is not shortened by a manual check, but a manual check goes ahead once the wait is over', async () => {
+  it('is not shortened by a check asked for in the meantime, which goes ahead once the wait is over', async () => {
     const w = await installed();
     w.server.on('meta', waitedFor(600), { times: 1 });
     await w.run();
     const before = w.server.count('meta');
 
     w.clock.advance(120);
-    expect((await w.run('checkNow')).outcome).toBe('notDue');
-    expect((await runCycle(w.tab(), 'checkNow')).outcome).toBe('notDue');
+    expect((await w.run()).outcome).toBe('notDue');
+    expect((await runCycle(w.tab())).outcome).toBe('notDue');
     expect(w.server.count('meta')).toBe(before);
 
     w.clock.advance(481);
-    expect((await w.run('checkNow')).outcome).toBe('noChange');
+    expect((await w.run()).outcome).toBe('noChange');
     expect(w.server.count('meta')).toBe(before + 1);
   });
 });
 
 describe('a manifest request that fails', () => {
-  it('keeps what is held and backs off', async () => {
+  it('keeps what is held and waits before trying again', async () => {
     const w = await installed();
     const held = (await w.state()).active!;
     w.server.use(makeRelease({ content: { b1: 'v2' }, releaseId: 2 }));
@@ -127,7 +125,6 @@ describe('a manifest request that fails', () => {
     const state = await w.state();
     expect(state.active).toEqual(held);
     expect(state.pending).toBeUndefined();
-    expect(state.backoffStep).toBe(1);
     expect(state.notBefore!).toBeGreaterThan(w.clock.now());
 
     w.clock.set(state.notBefore! + 1);
@@ -143,7 +140,7 @@ describe('a manifest request that fails', () => {
 });
 
 describe('a release that is not there yet', () => {
-  it('keeps what is held, reads nothing else, and polls again at the answer pollAfter', async () => {
+  it('keeps what is held, reads nothing else, and is due again after 60 seconds whatever pollAfter the body carries', async () => {
     const w = await installed();
     const held = (await w.state()).active!;
     w.server.on('meta', () => problem(404, 'delivery.stage_unreleased', { pollAfter: 700 }), { times: 1 });
@@ -154,38 +151,24 @@ describe('a release that is not there yet', () => {
     expect(w.server.log.length).toBe(requests + 1);
     const state = await w.state();
     expect(state.active).toEqual(held);
-    expect(state.lastPollAfter).toBe(700);
     expect(state.lastCheck).toBe(w.clock.now());
     expect(await w.holds(hashOf(w.server.current, 'b1', 'en'))).toBe(true);
 
-    w.clock.advance(699);
-    expect((await w.run()).outcome).toBe('notDue');
-    w.clock.advance(2);
-    expect((await w.run()).outcome).toBe('noChange');
-  });
-
-  it('polls again after 60 seconds when the answer gives no interval', async () => {
-    const w = await installed();
-    w.server.on('meta', () => problem(404, 'delivery.stage_unreleased'), { times: 1 });
-    await w.run();
-    expect((await w.state()).lastPollAfter).toBe(60);
-
     w.clock.advance(59);
     expect((await w.run()).outcome).toBe('notDue');
-    w.clock.advance(2);
+    w.clock.advance(1);
     expect((await w.run()).outcome).toBe('noChange');
   });
 
-  it('does not back off', async () => {
+  it('sets no wait beyond the 60 second floor', async () => {
     const w = await installed();
     w.server.on('meta', () => problem(404, 'delivery.stage_unreleased', { pollAfter: 700 }), { times: 1 });
     await w.run();
     const state = await w.state();
-    expect(state.backoffStep ?? 0).toBe(0);
     expect(state.notBefore === undefined || state.notBefore <= w.clock.now()).toBe(true);
   });
 
-  it('keeps what is held when the track is not found, and polls again at the answer pollAfter', async () => {
+  it('keeps what is held when the track is not found, and is due again after 60 seconds', async () => {
     const w = await installed();
     const held = (await w.state()).active!;
     w.server.on('meta', () => problem(404, 'delivery.track_not_found', { pollAfter: 700 }), { times: 1 });
@@ -196,12 +179,11 @@ describe('a release that is not there yet', () => {
     expect(w.server.log.length).toBe(requests + 1);
     const state = await w.state();
     expect(state.active).toEqual(held);
-    expect(state.lastPollAfter).toBe(700);
     expect(await w.holds(hashOf(w.server.current, 'b1', 'en'))).toBe(true);
 
-    w.clock.advance(699);
+    w.clock.advance(59);
     expect((await w.run()).outcome).toBe('notDue');
-    w.clock.advance(2);
+    w.clock.advance(1);
     expect((await w.run()).outcome).toBe('noChange');
   });
 });
@@ -211,7 +193,7 @@ describe('a refused key or request', () => {
     [400, 'validation'],
     [401, 'unauthorized'],
     [403, 'forbidden'],
-  ])('keeps polling at the last interval after a %s', async (status, code) => {
+  ])('is due again 60 seconds after a %s', async (status, code) => {
     const w = await installed();
     const held = (await w.state()).active!;
     w.server.on('meta', () => problem(status, code), { times: 3 });
@@ -223,35 +205,35 @@ describe('a refused key or request', () => {
       expect(result.conditions).toContainEqual(expect.objectContaining({ code: 'configuration', status }));
       expect(w.server.count('meta')).toBe(before + 1);
       expect(w.server.count('manifest')).toBe(1);
-      expect((await w.state()).lastPollAfter).toBe(900);
 
-      w.clock.advance(899);
+      w.clock.advance(59);
       expect((await w.run()).outcome).toBe('notDue');
-      w.clock.advance(2);
+      w.clock.advance(1);
     }
 
     expect((await w.run()).outcome).toBe('noChange');
     expect((await w.state()).active).toEqual(held);
   });
 
-  it('takes the interval from the answer when it gives one', async () => {
+  it('ignores a pollAfter in the answer', async () => {
     const w = await installed();
     w.server.on('meta', () => problem(403, 'forbidden', { pollAfter: 700 }), { times: 1 });
     await w.run();
-    expect((await w.state()).lastPollAfter).toBe(700);
+
+    w.clock.advance(60);
+    expect((await w.run()).outcome).toBe('noChange');
   });
 
-  it('polls every 1800 seconds when nothing is known and the answer gives no interval', async () => {
+  it('is due again after 60 seconds when nothing is held', async () => {
     const w = makeWorld();
     w.server.on('meta', () => problem(401, 'unauthorized'), { times: 1 });
     expect((await w.run()).outcome).toBe('failed');
     const state = await w.state();
-    expect(state.lastPollAfter).toBe(1800);
     expect(state.lastCheck).toBe(w.clock.now());
 
-    w.clock.advance(1799);
+    w.clock.advance(59);
     expect((await w.run()).outcome).toBe('notDue');
-    w.clock.advance(2);
+    w.clock.advance(1);
     expect((await w.run()).outcome).toBe('activated');
   });
 });
@@ -325,7 +307,7 @@ describe('storage that cannot be used', () => {
 });
 
 describe('a store that refuses to write the install', () => {
-  it('backs off after a first install, like any transient failure', async () => {
+  it('waits before trying again after a first install, like any transient failure', async () => {
     const w = makeWorld();
     vi.spyOn(w.store, 'writeInstall').mockResolvedValue(false);
 
@@ -333,12 +315,11 @@ describe('a store that refuses to write the install', () => {
     expect(result.outcome).toBe('failed');
     expect(result.conditions).toContainEqual({ code: 'storage' });
     const state = await w.state();
-    expect(state.backoffStep).toBe(1);
     expect(state.notBefore!).toBeGreaterThan(w.clock.now());
     expect(state.active).toBeUndefined();
   });
 
-  it('backs off after extending the install for a new locale', async () => {
+  it('waits before trying again after extending the install for a new locale', async () => {
     const w = await installed();
     vi.spyOn(w.store, 'writeInstall').mockResolvedValue(false);
     w.selection.locale = 'fr';
@@ -347,11 +328,10 @@ describe('a store that refuses to write the install', () => {
     expect(result.outcome).toBe('failed');
     expect(result.conditions).toContainEqual({ code: 'storage' });
     const state = await w.state();
-    expect(state.backoffStep).toBe(1);
     expect(state.notBefore!).toBeGreaterThan(w.clock.now());
   });
 
-  it('backs off after retrying an owed slot', async () => {
+  it('waits before trying again after retrying an owed slot', async () => {
     const bad = makeRelease({ content: { b1: 'v1' }, tamper: { slices: { 'b1/en': 'hash' } } });
     const w = makeWorld({ release: bad });
     await w.run();
@@ -362,7 +342,7 @@ describe('a store that refuses to write the install', () => {
     const result = await w.run();
     expect(result.outcome).toBe('failed');
     expect(result.conditions).toContainEqual({ code: 'storage' });
-    expect((await w.state()).backoffStep).toBe(1);
+    expect((await w.state()).notBefore!).toBeGreaterThan(w.clock.now());
   });
 });
 
@@ -378,7 +358,7 @@ describe('an object that cannot be fetched while a release is installed', () => 
     return { w, v1, v2, b1: slotName('b1', 'en') };
   }
 
-  it('is owed while the rest installs, and the check settles without a backoff', async () => {
+  it('is owed while the rest installs, and the check settles without a wait', async () => {
     const { w, v1, v2, b1 } = await nextRelease();
     w.server.on('object', gone, { name: hashOf(v2, 'b1', 'en') });
     const before = (await w.state()).lastCheck;
@@ -391,7 +371,6 @@ describe('an object that cannot be fetched while a release is installed', () => 
     expect(state.pending?.owed).toEqual([b1]);
     expect(state.lastCheck).toBe(w.clock.now());
     expect(state.lastCheck).not.toBe(before);
-    expect(state.backoffStep).toBeUndefined();
     expect(state.notBefore).toBeUndefined();
 
     w.server.clearRules();
@@ -401,7 +380,7 @@ describe('an object that cannot be fetched while a release is installed', () => 
     expect((await w.state()).pending?.slots[b1]).toBe(hashOf(v2, 'b1', 'en'));
   });
 
-  it('is owed while the rest installs, and a network failure backs off', async () => {
+  it('is owed while the rest installs, and a network failure sets a wait', async () => {
     const { w, v1, v2, b1 } = await nextRelease();
     w.server.on('object', offline, { name: hashOf(v2, 'b1', 'en') });
     const before = (await w.state()).lastCheck;
@@ -413,7 +392,6 @@ describe('an object that cannot be fetched while a release is installed', () => 
     expect(state.pending?.slots[slotName('b2', 'en')]).toBe(hashOf(v2, 'b2', 'en'));
     expect(state.pending?.owed).toEqual([b1]);
     expect(state.lastCheck).toBe(before);
-    expect(state.backoffStep).toBe(1);
     expect(state.notBefore!).toBeGreaterThan(w.clock.now());
 
     w.server.clearRules();
@@ -434,7 +412,7 @@ describe('a manifest that cannot be decoded', () => {
   it.each([
     ['is over the size cap', (w: World) => w.server.on('manifest', oversized)],
     ['is not a manifest', notAManifest],
-  ])('backs off, reports it, and is tried again when it %s', async (_label, arrange) => {
+  ])('waits, reports it, and is tried again when it %s', async (_label, arrange) => {
     const w = makeWorld();
     arrange(w);
 
@@ -443,7 +421,6 @@ describe('a manifest that cannot be decoded', () => {
     expect(result.conditions).toContainEqual({ code: 'manifest-unreadable' });
     const state = await w.state();
     expect(state.rejectedChecksums ?? []).toEqual([]);
-    expect(state.backoffStep).toBe(1);
     expect(state.notBefore!).toBeGreaterThan(w.clock.now());
     expect(state.lastCheck).toBeUndefined();
 

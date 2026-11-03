@@ -85,14 +85,13 @@ describe('the meta request', () => {
       appBuild: '42 beta',
       osVersion: 'macOS 14&15',
       language: 'zh-Hant HK',
-      pollSeconds: 900,
       release: 0,
     };
     await clientFor(fetchFn).fetchMeta(identity);
 
     expect(fetchFn.mock.calls[0]![0]).toBe(
       `${DELIVERY_URL}?appVersion=1.4.0&platform=web&sdkVersion=${SDK_VERSION}` +
-        '&release=0&pollSeconds=900&language=zh-Hant%20HK&osVersion=macOS%2014%2615&appBuild=42%20beta&installId=inst-1',
+        '&release=0&language=zh-Hant%20HK&osVersion=macOS%2014%2615&appBuild=42%20beta&installId=inst-1',
     );
   });
 
@@ -180,17 +179,32 @@ describe('a 200 answer', () => {
 
   it.each([
     ['null', { track: null }],
-    ['missing', {}],
     ['a number', { track: 5 }],
     ['an object', { track: { name: 'web' } }],
   ])('is unbound when track is %s, and makes no further request', async (_label, patch) => {
     const meta: Record<string, unknown> = { ...goodMeta(), ...patch };
-    if (!('track' in patch)) delete meta['track'];
     const fetchFn = answering(() => respond(200, meta));
     const outcome = await clientFor(fetchFn).fetchMeta({});
 
     expect(outcome).toEqual({ kind: 'unbound' });
     expect(fetchFn).toHaveBeenCalledTimes(1);
+  });
+
+  it('is received when the meta names neither a track nor a distribution', async () => {
+    const meta: Record<string, unknown> = { ...goodMeta() };
+    delete meta['track'];
+    delete meta['distribution'];
+    const outcome = await clientFor(answering(() => respond(200, meta))).fetchMeta({});
+
+    expect(outcome.kind).toBe('received');
+  });
+
+  it('is unbound when a track that is not a string stands beside no distribution', async () => {
+    const meta: Record<string, unknown> = { ...goodMeta(), track: null };
+    delete meta['distribution'];
+    const outcome = await clientFor(answering(() => respond(200, meta))).fetchMeta({});
+
+    expect(outcome).toEqual({ kind: 'unbound' });
   });
 
   it('decides unbound before it checks the rest of the meta', async () => {
@@ -205,7 +219,6 @@ describe('a 200 answer', () => {
     ['a missing manifestUrl', { manifestUrl: undefined }],
     ['a missing slicesBaseUrl', { slicesBaseUrl: undefined }],
     ['a non-numeric schemaVersion', { schemaVersion: '1' }],
-    ['a missing pollAfter', { pollAfter: undefined }],
     ['a missing releaseId', { releaseId: undefined }],
     ['an unsigned unauthenticated meta', { signedQuery: null }],
     ['an empty signedQuery', { signedQuery: '' }],
@@ -217,23 +230,21 @@ describe('a 200 answer', () => {
   });
 
   it.each([
+    ['missing', { pollAfter: undefined }],
     ['negative', { pollAfter: -1 }],
     ['a string', { pollAfter: '60' }],
     ['null', { pollAfter: null }],
-  ])('is unreadable when pollAfter is %s', async (_label, patch) => {
+  ])('ignores a pollAfter that is %s', async (_label, patch) => {
     const meta = { ...goodMeta(), ...patch };
     const outcome = await clientFor(answering(() => respond(200, meta))).fetchMeta({});
 
-    expect(outcome).toEqual({ kind: 'unreadable' });
+    expect(outcome.kind).toBe('received');
   });
 
-  it('is unreadable when pollAfter overflows to infinity, and accepts zero', async () => {
+  it('ignores a pollAfter that overflows to infinity', async () => {
     const raw = JSON.stringify(goodMeta()).replace(/"pollAfter":\d+/, '"pollAfter":1e999');
     expect(raw).toContain('1e999');
-    expect(await clientFor(answering(() => respond(200, raw))).fetchMeta({})).toEqual({ kind: 'unreadable' });
-
-    const zero = await clientFor(answering(() => respond(200, { ...goodMeta(), pollAfter: 0 }))).fetchMeta({});
-    expect(zero.kind).toBe('received');
+    expect((await clientFor(answering(() => respond(200, raw))).fetchMeta({})).kind).toBe('received');
   });
 
   it.each([
@@ -250,19 +261,19 @@ describe('a 200 answer', () => {
 });
 
 describe('problem answers', () => {
-  it('is unreleased for a stage with nothing released, with the poll hint', async () => {
+  it('is unreleased for a stage with nothing released', async () => {
     const outcome = await clientFor(answering(() => fixtureResponse('errors/meta-404-stage-unreleased.json'))).fetchMeta({});
 
-    expect(outcome).toEqual({ kind: 'unreleased', pollAfter: 900 });
+    expect(outcome).toEqual({ kind: 'unreleased' });
   });
 
-  it.each(['delivery.track_unreleased', 'delivery.not_published'])('is unreleased for %s', async (code) => {
+  it.each(['delivery.track_unreleased', 'delivery.not_published'])('is unreleased for %s, ignoring a pollAfter in the body', async (code) => {
     const outcome = await clientFor(answering(() => problem(404, code, { pollAfter: 300 }))).fetchMeta({});
 
-    expect(outcome).toEqual({ kind: 'unreleased', pollAfter: 300 });
+    expect(outcome).toEqual({ kind: 'unreleased' });
   });
 
-  it('is unreleased without a hint when none is given', async () => {
+  it('is unreleased when the body carries nothing else', async () => {
     const outcome = await clientFor(answering(() => problem(404, 'delivery.stage_unreleased'))).fetchMeta({});
 
     expect(outcome).toEqual({ kind: 'unreleased' });
@@ -284,16 +295,16 @@ describe('problem answers', () => {
   });
 
   it.each(['errors/meta-404-stage-not-found.json', 'errors/meta-404-track-not-found.json'])(
-    'carries the poll hint of %s on a configuration problem',
+    'is a configuration problem for %s, with no pollAfter',
     async (file) => {
       const body = bodyOf(file);
       const outcome = await clientFor(answering(() => fixtureResponse(file))).fetchMeta({});
 
-      expect(outcome).toEqual({ kind: 'configuration', status: 404, code: body['code'], pollAfter: 1800 });
+      expect(outcome).toEqual({ kind: 'configuration', status: 404, code: body['code'] });
     },
   );
 
-  it('keeps the code when the poll hint is malformed', async () => {
+  it('keeps the code whatever the pollAfter in the body is', async () => {
     for (const pollAfter of ['soon', -5, 1.5, null]) {
       const outcome = await clientFor(answering(() => problem(403, 'forbidden', { pollAfter }))).fetchMeta({});
 
@@ -301,10 +312,10 @@ describe('problem answers', () => {
     }
   });
 
-  it('keeps the poll hint when the code is not a string', async () => {
+  it('leaves the code out when it is not a string', async () => {
     const outcome = await clientFor(answering(() => problem(403, 5 as unknown as string, { pollAfter: 60 }))).fetchMeta({});
 
-    expect(outcome).toEqual({ kind: 'configuration', status: 403, pollAfter: 60 });
+    expect(outcome).toEqual({ kind: 'configuration', status: 403 });
   });
 
   it('is still a configuration problem when the body is not JSON', async () => {
