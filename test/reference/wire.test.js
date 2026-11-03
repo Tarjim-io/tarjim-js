@@ -220,16 +220,16 @@ describe('client identity on the wire', () => {
     await startClient(release, { config: { language: 'ar', appVersion: '3.4.5' } });
     const [{ url }] = requestsOfKind(release, 'meta');
     expect(url).toBe(
-      `${release.deliveryUrl}?appVersion=3.4.5&platform=web&sdkVersion=ref-0.1.0&release=0&language=ar`,
+      `${release.deliveryUrl}?appVersion=3.4.5&platform=web&sdkVersion=ref-0.1.1&release=0&language=ar`,
     );
     const query = queryOf(url);
     for (const forbidden of ['pollSeconds', 'installId', 'apikey', 'apiKey']) expect(query).not.toHaveProperty(forbidden);
-    expect(query).toMatchObject({ platform: 'web', sdkVersion: 'ref-0.1.0', release: '0' });
+    expect(query).toMatchObject({ platform: 'web', sdkVersion: 'ref-0.1.1', release: '0' });
   });
 
   it('reports the library version', async () => {
     const harness = createHarness(basicRelease());
-    expect(harness.TarjimReference.version).toBe('0.1.0');
+    expect(harness.TarjimReference.version).toBe('0.1.1');
   });
 });
 
@@ -245,15 +245,6 @@ describe('app version', () => {
     ['1.2.', '1.2.0'],
     ['2.x', '2.0.0'],
     ['1.2.3.', '1.2.3'],
-    ['1..2', '0.0.0'],
-    ['.', '0.0.0'],
-    ['abc', '0.0.0'],
-    ['', '0.0.0'],
-    [42, '0.0.0'],
-    [undefined, '0.0.0'],
-    [null, '0.0.0'],
-    ['9007199254740991.9007199254740991.9007199254740991', '0.0.0'],
-    ['99999999999999999999.1.1', '0.0.0'],
   ];
 
   it.each(cases)('normalises %j to %s on the wire without rejecting start()', async (given, expected) => {
@@ -263,13 +254,72 @@ describe('app version', () => {
     expect(client.t('app.title')).toBe('Tarjim');
 
     const [{ url, init }] = requestsOfKind(release, 'meta');
-    expect(url).toBe(`${release.deliveryUrl}?appVersion=${expected}&platform=web&sdkVersion=ref-0.1.0&release=0&language=en`);
+    expect(url).toBe(`${release.deliveryUrl}?appVersion=${expected}&platform=web&sdkVersion=ref-0.1.1&release=0&language=en`);
     expect(JSON.stringify(headersOf(init))).not.toContain(expected);
     for (const { url: objectUrl } of [...requestsOfKind(release, 'manifest'), ...requestsOfKind(release, 'object')]) {
       expect(objectUrl).not.toContain('appVersion');
     }
     expect(harness.codes().filter((code) => code === 'app-version-normalised')).toHaveLength(1);
     expect(JSON.stringify(harness.reports)).not.toContain(API_KEY);
+  });
+
+  it.each([
+    ['1..2'],
+    ['.'],
+    ['abc'],
+    [''],
+    [42],
+    [null],
+    ['1234567890.1.1'],
+    ['99999999999999999999.1.1'],
+  ])('sends no appVersion for %j, and reports it', async (given) => {
+    const release = basicRelease();
+    const harness = createHarness(release, { config: { appVersion: given } });
+    const client = await harness.start();
+    expect(client.t('app.title')).toBe('Tarjim');
+
+    const [{ url }] = requestsOfKind(release, 'meta');
+    expect(url).toBe(`${release.deliveryUrl}?platform=web&sdkVersion=ref-0.1.1&release=0&language=en`);
+    expect(harness.codes().filter((code) => code === 'app-version-normalised')).toHaveLength(1);
+  });
+
+  it('sends no appVersion and reports nothing when the page gives none', async () => {
+    const release = basicRelease();
+    const harness = createHarness(release, { config: { appVersion: undefined } });
+    await harness.start();
+
+    expect(requestsOfKind(release, 'meta')[0].url).not.toContain('appVersion');
+    expect(harness.codes()).toEqual([]);
+  });
+
+  it('keeps a nine digit component', async () => {
+    const release = basicRelease();
+    await createHarness(release, { config: { appVersion: '123456789.0.1' } }).start();
+
+    expect(requestsOfKind(release, 'meta')[0].url).toContain('?appVersion=123456789.0.1&');
+  });
+
+  it('asks once more with 0.0.0 when the server still requires a version', async () => {
+    const release = basicRelease();
+    release.hook(({ kind, nth }) => {
+      if (kind === 'meta' && nth === 0) return problem(400, 'delivery.app_version_required');
+    });
+    const client = await createHarness(release, { config: { appVersion: undefined } }).start();
+
+    expect(client.t('app.title')).toBe('Tarjim');
+    expect(requestsOfKind(release, 'meta').map(({ url }) => new URL(url).searchParams.get('appVersion'))).toEqual([null, '0.0.0']);
+  });
+
+  it('does not ask again for any other 400, or when a version was sent', async () => {
+    for (const [code, appVersion] of [['delivery.something_else', undefined], ['delivery.app_version_required', '1.0.0']]) {
+      const release = basicRelease();
+      release.hook(({ kind }) => {
+        if (kind === 'meta') return problem(400, code);
+      });
+      await createHarness(release, { config: { appVersion } }).start();
+
+      expect(requestsOfKind(release, 'meta')).toHaveLength(1);
+    }
   });
 
   it('reports what it was given and what it sent, as from and to', async () => {
@@ -280,7 +330,7 @@ describe('app version', () => {
 
     const odd = createHarness(basicRelease(), { config: { appVersion: 42 } });
     await odd.start();
-    expect(odd.reports.find(({ code }) => code === 'app-version-normalised')).toMatchObject({ from: '42', to: '0.0.0' });
+    expect(odd.reports.find(({ code }) => code === 'app-version-normalised')).toMatchObject({ from: '42', to: 'none' });
   });
 
   it('stays quiet when the version is already in its normal form', async () => {

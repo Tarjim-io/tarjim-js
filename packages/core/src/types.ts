@@ -4,8 +4,8 @@ export interface DeliveryClientOptions {
   /** The meta URL as the console shows it. Validate it with `deliveryUrlProblem` first. */
   deliveryUrl: string;
   apiKey: string;
-  /** Normalised by the client with `normaliseAppVersion` before it is sent. */
-  appVersion: string;
+  /** Normalised by the client with `normaliseAppVersion` before it is sent. Absent: the app is served as the newest. */
+  appVersion?: string;
   platform: string;
   fetch: FetchFunction;
   /** Milliseconds without receiving any bytes before a request is abandoned. */
@@ -15,7 +15,6 @@ export interface DeliveryClientOptions {
 /** Optional identity sent with `meta` only. An absent field is not sent. */
 export interface MetaIdentity {
   release?: string | number;
-  pollSeconds?: number;
   language?: string;
   osVersion?: string;
   appBuild?: string;
@@ -29,9 +28,9 @@ export interface Meta {
   slicesBaseUrl: string;
   authenticated?: boolean;
   signedQuery?: string;
-  track: string;
+  distribution?: string;
+  track?: string;
   releaseId: string | number;
-  pollAfter: number;
   [field: string]: unknown;
 }
 
@@ -39,8 +38,8 @@ export type MetaOutcome =
   | { kind: 'received'; meta: Meta }
   | { kind: 'unbound' }
   | { kind: 'unreadable' }
-  | { kind: 'unreleased'; pollAfter?: number }
-  | { kind: 'configuration'; status: number; code?: string; pollAfter?: number }
+  | { kind: 'unreleased' }
+  | { kind: 'configuration'; status: number; code?: string }
   | { kind: 'throttled'; retryAfter?: number }
   | { kind: 'server'; status: number; retryAfter?: number }
   | { kind: 'network' };

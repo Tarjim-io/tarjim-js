@@ -174,14 +174,9 @@ describe('browserPlatform', () => {
     expect(cancelled).not.toHaveBeenCalled();
   });
 
-  it('gives the time, a random fraction and unique random ids', () => {
+  it('gives the time and unique random ids', () => {
     const platform = browserPlatform();
     expect(Math.abs(platform.now() - Date.now())).toBeLessThan(1000);
-    for (let i = 0; i < 20; i++) {
-      const value = platform.random();
-      expect(value).toBeGreaterThanOrEqual(0);
-      expect(value).toBeLessThan(1);
-    }
     const a = platform.randomId();
     expect(a).toMatch(UUID);
     expect(platform.randomId()).not.toBe(a);
@@ -264,6 +259,8 @@ describe('Tarjim.start in a page', () => {
     const first = await start({ fetch: server.fetch });
     await until(() => first.t('a') === 'v1 b1 en', 'the release');
     server.use(makeRelease({ content: { b1: 'v2' }, releaseId: 2 }));
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(Date.now() + 61_000);
     expect(await first.checkNow()).toBe('downloaded');
     expect(first.t('a')).toBe('v1 b1 en');
     first.stop();
@@ -278,6 +275,8 @@ describe('Tarjim.start in a page', () => {
     const server = makeServer(makeRelease());
     const runtime = await start({ fetch: server.fetch });
     await until(() => runtime.t('a') === 'v1 b1 en', 'the release');
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(Date.now() + 61_000);
     await runtime.checkNow();
 
     expect(queryOf(server.requests('meta').slice(-1)[0]!.url)['installId']).toMatch(UUID);

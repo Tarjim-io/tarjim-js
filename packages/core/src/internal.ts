@@ -22,9 +22,9 @@ export {
   withInstall,
 } from './store.js';
 export type { Install, State, Store } from './store.js';
-export { clampPollAfter, clampRetryAfter, dueAt, backoffSeconds } from './cadence.js';
+export { clampRetryAfter, dueAt, failureWaitSeconds } from './cadence.js';
 export { runCycle, fetchHeldLocale } from './cycle.js';
-export type { CycleCondition, CycleContext, CycleOutcome, CycleReason, CycleResult } from './cycle.js';
+export type { CycleCondition, CycleContext, CycleOutcome, CycleResult } from './cycle.js';
 export { createScheduler } from './scheduler.js';
 export type { Scheduler, SchedulerOptions, Timers, Visibility } from './scheduler.js';
 export { selectLocale, matchLocale } from './locale.js';

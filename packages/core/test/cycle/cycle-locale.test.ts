@@ -7,7 +7,7 @@ describe('the locale a visitor switches to', () => {
   it('is fetched from the held manifest without reading meta, and applies at once', async () => {
     const w = await installed();
     const release = w.server.current;
-    w.clock.advance(-900);
+    w.clock.advance(-990);
     w.selection.locale = 'fr';
     const metas = w.server.count('meta');
 
@@ -29,11 +29,11 @@ describe('the locale a visitor switches to', () => {
 
   it('is fetched inside a cycle that is not due, before any meta request', async () => {
     const w = await installed();
-    w.clock.advance(-900);
+    w.clock.advance(-990);
     w.selection.locale = 'fr';
     const metas = w.server.count('meta');
 
-    const result = await runCycle(w.ctx, 'scheduled');
+    const result = await runCycle(w.ctx);
     expect(['activated', 'notDue']).toContain(result.outcome);
     expect(w.server.count('meta')).toBe(metas);
     expect((await w.state()).active?.slots[slotName('b1', 'fr')]).toBe(hashOf(w.server.current, 'b1', 'fr'));
@@ -42,13 +42,13 @@ describe('the locale a visitor switches to', () => {
   it('is fetched once for one change of selection', async () => {
     const w = await installed();
     w.selection.locale = 'fr';
-    await runCycle(w.ctx, 'scheduled');
+    await runCycle(w.ctx);
     const fr = hashOf(w.server.current, 'b1', 'fr');
     expect(w.server.objectCount(fr)).toBe(1);
 
     for (let i = 0; i < 3; i++) {
       w.clock.advance(1000);
-      await runCycle(w.ctx, 'scheduled');
+      await runCycle(w.ctx);
       await fetchHeldLocale(w.ctx);
     }
     expect(w.server.objectCount(fr)).toBe(1);
@@ -105,7 +105,7 @@ describe('the locale a visitor switches to', () => {
     const fr = hashOf(w.server.current, 'b1', 'fr');
     const metas = w.server.count('meta');
 
-    await runCycle(w.ctx, 'scheduled');
+    await runCycle(w.ctx);
     expect(w.server.count('meta')).toBe(metas + 1);
     expect(w.server.objectCount(fr)).toBe(1);
     expect((await w.state()).active?.slots[slotName('b1', 'fr')]).toBe(fr);
@@ -182,20 +182,19 @@ describe('a locale whose slices cannot be used', () => {
     expect((await w.state()).active?.slots[slotName('b2', 'fr')]).toBeDefined();
   });
 
-  it('is owed, and the polls go on every period, while its object stays refused', async () => {
+  it('is owed, and the checks go on every 60 seconds, while its object stays refused', async () => {
     const w = await installed();
     w.selection.locale = 'fr';
     w.server.on('object', edge403, { name: hashOf(w.server.current, 'b1', 'fr') });
 
     for (let period = 0; period < 3; period++) {
-      const result = await runCycle(w.ctx, 'scheduled');
+      const result = await runCycle(w.ctx);
       expect(result.outcome).not.toBe('failed');
       const state = await w.state();
       expect(state.lastCheck).toBe(w.clock.now());
-      expect(state.backoffStep).toBeUndefined();
       expect(state.notBefore).toBeUndefined();
       expect(state.active?.owed).toEqual([slotName('b1', 'fr')]);
-      w.clock.advance(901);
+      w.clock.advance(60);
     }
     expect(w.server.count('meta')).toBeGreaterThanOrEqual(4);
   });
@@ -220,13 +219,13 @@ describe('a locale whose slices cannot be used', () => {
 });
 
 describe('what a cycle reports about the active install', () => {
-  it('names the active install it extended even when the poll wrote a pending one', async () => {
+  it('names the active install it extended even when the check wrote a pending one', async () => {
     const w = await installed();
     w.selection.locale = 'fr';
     // Keeps b1 as it was, so the object the old manifest lists is still served.
     w.server.use(makeRelease({ content: { b1: 'v1', b2: 'v1' }, releaseId: 2 }));
 
-    const result = await runCycle(w.ctx, 'scheduled');
+    const result = await runCycle(w.ctx);
     const state = await w.state();
     expect(result.outcome).toBe('downloaded');
     expect(result.install).toEqual(state.pending);
@@ -238,12 +237,12 @@ describe('what a cycle reports about the active install', () => {
     const w = await installed();
     w.server.use(makeRelease({ content: { b1: 'v2' }, releaseId: 2 }));
 
-    const result = await runCycle(w.ctx, 'scheduled');
+    const result = await runCycle(w.ctx);
     expect(result.outcome).toBe('downloaded');
     expect(result.active).toBeUndefined();
   });
 
-  it('is not fetched for a locale while a backoff is running, and says the cycle is not due', async () => {
+  it('is not fetched for a locale while a wait after a failure is running, and says the cycle is not due', async () => {
     const w = await installed();
     w.server.on('meta', () => respond(500, 'oops', { headers: { 'Content-Type': 'text/plain' } }), { times: 1 });
     await w.run();

@@ -53,8 +53,8 @@ describe('MemoryStore state written by something newer', () => {
   it('keeps an unknown field through updateState, dropping only what the change removed', async () => {
     const store = new MemoryStore('a');
     seed(store, { futureField: 'x', lastCheck: 1, languageOverride: 'fr' });
-    await store.updateState(({ languageOverride: _removed, ...rest }) => ({ ...rest, backoffStep: 2 }));
-    expect(raw(store)).toEqual({ futureField: 'x', lastCheck: 1, backoffStep: 2 });
+    await store.updateState(({ languageOverride: _removed, ...rest }) => ({ ...rest, notBefore: 2 }));
+    expect(raw(store)).toEqual({ futureField: 'x', lastCheck: 1, notBefore: 2 });
   });
 
   it('keeps an unknown field through writeInstall, and an active write still clears pending', async () => {

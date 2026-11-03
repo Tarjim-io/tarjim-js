@@ -40,7 +40,6 @@ export function browserPlatform(): Platform {
       },
     },
     now: () => Date.now(),
-    random: () => Math.random(),
     randomId: () => globalThis.crypto.randomUUID(),
     log: (level, message, details) => {
       const write = level === 'info' ? console.info : console.debug;

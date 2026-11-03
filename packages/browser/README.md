@@ -82,7 +82,7 @@ error classes `TarjimConfigError` and `TarjimLanguageError` (exported as values,
 |---|---|
 | `deliveryUrl` | required. The delivery URL from the console, used as given. |
 | `apiKey` | required. A delivery key bound to a track and a stage. |
-| `appVersion` | required. Your site's release, `MAJOR.MINOR.PATCH` (a `v` prefix or a suffix is stripped). Change it on every deploy. |
+| `appVersion` | Your site's release, `MAJOR.MINOR.PATCH` (a `v` prefix or a suffix is stripped). Change it on every deploy. Without one, the site is served as the newest app. |
 | `defaultBundle` | required. `{ type: 'namespace' \| 'custom', name }`, the bundle lookups read by default. |
 | `fallbackLanguage` | required. Served when no other language matches the release. |
 | `language` | the language to serve. Without it, the visitor's saved choice, then the browser's languages, then `fallbackLanguage`. |
@@ -110,7 +110,7 @@ resolves there is no instance, so show your embedded text or a placeholder until
 | `language`, `ready` | the language being served; `ready` is always `true` on a resolved instance |
 | `setLanguage(language)` | resolves once the new language is active; rejects when the release has none |
 | `on(type, listener)` | `'downloaded'`, `'activated'` or `'languageChanged'`; returns a function that removes the listener |
-| `checkNow()`, `activatePendingUpdate()` | check for a release now; switch to a downloaded one |
+| `checkNow()`, `activatePendingUpdate()` | check for a release now (at most once per 60 seconds, shared with the checks at page load and on return to the tab, so right after a load it returns `notDue`); switch to a downloaded one |
 | `setInstallId(enabled)` | turn the install id on or off |
 | `updates()` | the same events as an async iterator |
 | `subscribe(listener)`, `getVersion()` | for UI frameworks: the listener fires when lookups may answer differently (a newer release is activated or the language changes, not when one is only `downloaded`), and `getVersion()` is the number that changes with it |

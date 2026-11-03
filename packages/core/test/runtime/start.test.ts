@@ -62,6 +62,7 @@ describe('a later release', () => {
     const downloaded: string[] = [];
     runtime.on('downloaded', (event) => downloaded.push(event.type));
     world.release(V2);
+    world.clock.advance(60);
 
     expect(await runtime.checkNow()).toBe('downloaded');
 
@@ -76,6 +77,7 @@ describe('a later release', () => {
     world = makeWorld();
     const first = await world.startActive();
     world.release(V2);
+    world.clock.advance(60);
     await first.checkNow();
     first.stop();
     world.server.on('meta', () => new Error('offline'));
@@ -101,6 +103,7 @@ describe('a later release', () => {
     world = makeWorld();
     const runtime = await world.startActive();
     world.release(V2);
+    world.clock.advance(60);
     await runtime.checkNow();
     const activated: string[] = [];
     runtime.on('activated', (event) => activated.push(event.type));
@@ -125,6 +128,7 @@ describe('a later release', () => {
     world = makeWorld();
     const first = await world.startActive();
     world.release(V2);
+    world.clock.advance(60);
     await first.checkNow();
     first.stop();
     const pendingHash = hashOf(world.server.current, 'b1', 'en');
@@ -137,10 +141,11 @@ describe('a later release', () => {
     await until(async () => (await world.state()).active?.owed.includes(slotName('b1', 'en')) === true, 'the owed slot');
   });
 
-  it('fetches the owed slice again at the next check and then shows it', async () => {
+  it('fetches the owed slice again at the next return to the foreground and then shows it', async () => {
     world = makeWorld();
     const first = await world.startActive();
     world.release(V2);
+    world.clock.advance(60);
     await first.checkNow();
     first.stop();
     const hidden = (world.store as unknown as { hidden: Set<string> }).hidden;
@@ -150,7 +155,8 @@ describe('a later release', () => {
     await until(async () => (await world.state()).active?.owed.length === 1, 'the owed slot');
 
     hidden.clear();
-    await world.timers.advance(3_600_000);
+    world.clock.advance(3600);
+    world.returnToForeground();
     await until(() => second.t('a') === 'v2 b1 en', 'the repaired text');
   });
 });
@@ -247,16 +253,29 @@ describe('without timers (Node)', () => {
 });
 
 describe('the scheduler', () => {
-  it('checks again when the poll interval has passed', async () => {
+  it('checks again on a return to the foreground once 60 seconds have passed, and not before', async () => {
     world = makeWorld();
     await world.startActive();
     const before = world.metaCount();
-    await world.timers.advance(10 * 60 * 1000);
+    world.clock.advance(30);
+    world.returnToForeground();
     await settle();
     expect(world.metaCount()).toBe(before);
 
-    await world.timers.advance(10 * 60 * 1000);
+    world.clock.advance(30);
+    world.returnToForeground();
     await until(() => world.metaCount() === before + 1, 'the next check');
+  });
+
+  it('never checks on its own, however long the page stays open', async () => {
+    world = makeWorld();
+    await world.startActive();
+    const before = world.metaCount();
+
+    await world.timers.advance(86_400_000);
+    await settle();
+
+    expect(world.metaCount()).toBe(before);
   });
 
   it('does not check while the page is hidden, and does once it shows', async () => {
@@ -269,18 +288,18 @@ describe('the scheduler', () => {
     await until(() => world.metaCount() === 1, 'the check on becoming visible');
   });
 
-  it('stops the timers and the visibility listener on stop()', async () => {
+  it('holds no timer, and stops the visibility listener on stop()', async () => {
     world = makeWorld();
     const runtime = await world.startActive();
     await settle();
-    expect(world.timers.count).toBe(1);
+    expect(world.timers.count).toBe(0);
     expect(world.visibility.listenerCount).toBe(1);
 
     runtime.stop();
-    expect(world.timers.count).toBe(0);
     expect(world.visibility.listenerCount).toBe(0);
     const before = world.metaCount();
-    await world.timers.advance(86_400_000);
+    world.clock.advance(86_400);
+    world.returnToForeground();
     await settle();
     expect(world.metaCount()).toBe(before);
   });
@@ -307,16 +326,18 @@ describe('a key bound to nothing', () => {
   const unbound = () =>
     world.server.on('meta', () => respond(200, { ...world.server.current.meta, track: null }));
 
-  it('stops polling, serves only the embedded text and reports it once', async () => {
+  it('stops checking, serves only the embedded text and reports it once', async () => {
     world = makeWorld();
     const runtime = await world.startActive();
     unbound();
 
+    world.clock.advance(60);
     await runtime.checkNow();
     await until(() => runtime.t('a') === 'embedded a', 'the embedded text');
 
     const metas = world.metaCount();
-    await world.timers.advance(3 * 86_400_000);
+    world.clock.advance(3 * 86_400);
+    world.returnToForeground();
     await settle();
     expect(world.metaCount()).toBe(metas);
     expect(world.timers.count).toBe(0);
@@ -327,6 +348,7 @@ describe('a key bound to nothing', () => {
     world = makeWorld();
     const runtime = await world.startActive();
     unbound();
+    world.clock.advance(60);
     await runtime.checkNow();
     await until(() => runtime.t('a') === 'embedded a', 'the embedded text');
     expect(runtime.entry('a')?.value).toBe('embedded a');
@@ -338,7 +360,8 @@ describe('a key bound to nothing', () => {
     unbound();
     const runtime = await world.start();
     await until(() => world.reportsOf('unbound-key').length === 1, 'the report');
-    await world.timers.advance(86_400_000);
+    world.clock.advance(86_400);
+    world.returnToForeground();
     await settle();
     expect(world.metaCount()).toBe(1);
     expect(runtime.t('a')).toBe('embedded a');
@@ -355,10 +378,11 @@ describe('a key bound to nothing', () => {
     );
   });
 
-  it('keeps polling for a key that is bound (twin)', async () => {
+  it('keeps checking on each return to the foreground for a key that is bound (twin)', async () => {
     world = makeWorld();
     await world.startActive();
-    await world.timers.advance(86_400_000);
+    world.clock.advance(86_400);
+    world.returnToForeground();
     await until(() => world.metaCount() >= 2, 'a later check');
     expect(world.reportsOf('unbound-key')).toEqual([]);
   });

@@ -6,41 +6,42 @@ readable file. If you write your own client, read both.
 
 ## 1. What a client is given
 
-- **A delivery URL**, copied from the console: `https://<host>/…/delivery/meta`. Treat it as opaque.
+- **A delivery URL**, copied from the console: `https://<host>/…/meta`, for example
+  `https://<host>/delivery/<public id>/meta`. Treat it as opaque.
   Use it exactly as given, never build it from parts, never parse its path, and never add a trailing
   slash.
-- **A delivery key**, bound to one track and one stage.
+- **A delivery key**, bound to one distribution and one stage. (A distribution was called a track;
+  the older name still appears on the wire, see section 2.)
 
 > ⚠ **Any key in a web page is public.** Anyone can read it with View Source. The only key to put in a
-> page is a delivery key bound to a track and a stage, which can do nothing but read that stage's
+> page is a delivery key bound to a distribution and a stage, which can do nothing but read that stage's
 > release. Never put any other key in a page. An unbound key acts with its creator's full rights.
 
 ## 2. Reading `meta`
 
 ```
-GET <delivery URL>?appVersion=<MAJOR.MINOR.PATCH>[&<identity>…]
+GET <delivery URL>?[appVersion=<MAJOR.MINOR.PATCH>&]<identity>…
 X-Tarjim-Apikey: <delivery key>
 X-Tarjim-Api-Version: 2026-07-29
 ```
 
 - The key travels **only** in `X-Tarjim-Apikey`: never in a URL, a log line or an error message.
-- `appVersion` is required, exactly once, and raw (not percent-encoded). Its value is
-  `MAJOR.MINOR.PATCH` with no leading zeros, at most 32 characters. A missing or malformed value
-  answers `400 delivery.app_version_required`, so normalise before sending:
-  - strip a leading `v`;
+- `appVersion` is sent at most once, raw (not percent-encoded). Its value is `MAJOR.MINOR.PATCH` with
+  no leading zeros. The server does not normalise it, so normalise before sending:
+  - strip a leading `v`, and any pre-release or build suffix (`2.1.0-rc1`, `2.1.0+5`);
   - keep up to three leading numeric parts and drop leading zeros;
-  - pad with `.0`;
-  - send `0.0.0` if nothing parses.
+  - pad with `.0` (`2.1` becomes `2.1.0`);
+  - each part has at most 9 digits. If a part is longer, or nothing parses, you have no version.
 
   `appVersion` is the version of YOUR site or app, not of the client. It must change with every
-  release you ship.
+  release you ship. A release can cover a range of app versions, so this value can decide which
+  release you get. **A client with no version sends no `appVersion`** and is served as the newest app.
+  A server may still require it and answer `400 delivery.app_version_required`: on exactly that answer
+  to a request that sent no version, ask again with `appVersion=0.0.0`.
 - Optional identity parameters, all ignored if malformed: `platform` (e.g. `web`), `sdkVersion`,
   `release` (the release id you hold, `0` for none), `language` (the locale you serve), `osVersion`,
-  `appBuild`. Two more need care:
-  - Send `pollSeconds` only if your client really waits that long between checks. A client that
-    checks on every page load must not send it.
-  - Send `installId` only with a stored per-browser identifier, and only where your consent rules
-    allow it.
+  `appBuild`. Send `installId` only with a stored per-browser identifier, and only where your consent
+  rules allow it. Do not send `pollSeconds`: there is no polling interval any more.
 - Do not follow redirects. A redirect would carry the key to another host; treat it as a network
   failure.
 - In a browser, the two headers make the request preflighted. The delivery routes allow
@@ -56,11 +57,11 @@ A `200` answer is JSON. The fields a client uses:
 | `manifestUrl`, `slicesBaseUrl` | where the manifest and the slices are (see section 4) |
 | `authenticated` | `true`: origin mode; anything else: CDN mode (section 4) |
 | `signedQuery` | CDN mode only: the query string to append to every object URL |
-| `track`, `stage` | the binding. `track: null` means the key is NOT bound, and a web client must stop. |
+| `distribution` (or `track`), `stage` | the binding. Either name may be sent, or neither. `track: null` with no `distribution` means the key is NOT bound, and a web client must stop. |
 | `releaseId` | the release the stage points at |
-| `pollAfter` | the minimum number of seconds before the next `meta` check |
 
-Other fields are informational. Ignore what you do not know.
+Other fields are informational, including `pollAfter`, which some servers still send and no client
+should read. Ignore what you do not know.
 
 ### Answers other than 200
 
@@ -68,14 +69,14 @@ The body of an error is `application/problem+json` with a `code`.
 
 | status · `code` | meaning | what to do |
 |---|---|---|
-| 400 `delivery.app_version_required` | `appVersion` missing or malformed | configuration error. Fix the client. |
+| 400 `delivery.app_version_required` | `appVersion` missing or malformed | ask once more with `0.0.0` if you sent none; otherwise a configuration error. Fix the client. |
 | 401 `unauthorized` | key missing, malformed or revoked | configuration error |
 | 403 `delivery.apikey_project_mismatch`, `forbidden` | the key belongs to another project, or may not read delivery | configuration error |
-| 404 `delivery.track_not_found`, `delivery.stage_not_found` | the binding names something that no longer exists | configuration error. Wait `pollAfter` (in the body) before checking again. |
-| 404 `delivery.stage_unreleased` | nothing released to this stage yet | normal. Wait `pollAfter` (in the body). |
+| 404 `delivery.track_not_found`, `delivery.stage_not_found` | the binding names something that no longer exists | configuration error |
+| 404 `delivery.stage_unreleased` | nothing released to this stage, or nothing for this `appVersion`, yet | normal. Keep what you hold. |
 | 404 `not-found` | no such project | configuration error |
-| 429 | throttled | back off; wait at least `Retry-After` if present |
-| 5xx, network failure | server or network trouble | back off and keep what you hold. Never discard text because a check failed. |
+| 429 | throttled | keep what you hold; wait at least `Retry-After` if present |
+| 5xx, network failure | server or network trouble | keep what you hold. Never discard text because a check failed. |
 
 A browser cannot read a failed response without CORS headers: it sees a network failure. Treat a
 network failure exactly like a 5xx.
@@ -188,12 +189,15 @@ A JSON slice:
 
 ## 7. When to check again
 
-- `pollAfter` is the minimum interval between `meta` checks. A client that keeps state should check no
-  sooner, add a little random jitter, and share one check across tabs.
-- On a 5xx, a 429 or a network failure, back off exponentially from 60 seconds up to `pollAfter`, and
-  wait at least `Retry-After` when it is present.
-- A client with no storage (such as the reference client) checks once per page load and therefore
-  must not send `pollSeconds`.
+- There is no polling interval and no timer. Check `meta` when the app launches and when it returns to
+  the foreground, and never more often than once per **60 seconds** per key, shared across tabs. A
+  faster check could not see anything newer.
+- A manual check obeys the same 60 seconds. In the packages, `checkNow()` right after the launch check
+  returns `notDue` and reads nothing.
+- On a 5xx, a 429 or a network failure, keep what you hold and try again at the next launch or return to
+  the foreground, not on a timer, and not before `Retry-After` when it is present.
+- A page that stays in the foreground therefore checks only at launch, unless the app asks.
+- A client with no storage (such as the reference client) checks once per page load.
 
 ## 8. Compatibility
 

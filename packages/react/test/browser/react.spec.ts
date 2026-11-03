@@ -200,6 +200,7 @@ test.describe('@tarjim/react in a real browser', () => {
     const afterFirst = await memoRuns(tab);
 
     state.current = 1;
+    await tab.clock.setFixedTime(Date.now() + 61_000);
     const downloaded = await tab.evaluate(() => (window as any).runtime.checkNow());
     expect(downloaded).toBe('downloaded');
     expect(await tab.locator('[data-id=bottom]').textContent()).toBe('Tarjim|en');
@@ -231,6 +232,7 @@ test.describe('@tarjim/react in a real browser', () => {
     await untilShown(tab, 'Tarjim|en');
 
     state.current = 1;
+    await tab.clock.setFixedTime(Date.now() + 61_000);
     await tab.evaluate(() => (window as any).runtime.checkNow());
     await tab.waitForFunction(() => (window as any).api.pendingUpdate === true, undefined, { timeout: 4000 });
 

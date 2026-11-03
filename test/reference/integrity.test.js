@@ -181,7 +181,6 @@ describe('unbound key', () => {
   });
 
   it.each([
-    ['missing', undefined],
     ['a number', 7],
     ['an object', {}],
   ])('is inactive with a report when the track is %s', async (_, track) => {
@@ -190,6 +189,17 @@ describe('unbound key', () => {
     expect(client.active).toBe(false);
     expect(codes()).toEqual(['unbound-key']);
     expect(requestsOfKind(unbound, 'manifest')).toHaveLength(0);
+  });
+
+  it.each([
+    ['distribution in place of track', { track: undefined, distribution: 'mobile-app' }],
+    ['distribution beside a null track', { track: null, distribution: 'mobile-app' }],
+    ['neither name', { track: undefined }],
+    ['no polling interval', { pollAfter: undefined }],
+  ])('is active for a meta with %s', async (_, metaOverrides) => {
+    const { client, codes } = await startClient(basicRelease({ metaOverrides }));
+    expect(client.active).toBe(true);
+    expect(codes()).toEqual([]);
   });
 
   it('has no option that lets an unbound key through', async () => {

@@ -9,8 +9,6 @@ vi.mock('node:url', () => import('./helpers/node-url-mock.js'));
 
 useCleanSlate();
 
-const POLL_MS = 1_000_000;
-
 describe('the configuration', () => {
   it('is read once: a new config object on a re-render starts nothing and warns once', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
@@ -124,7 +122,7 @@ describe('a language that cannot be set', () => {
 });
 
 describe('the runtime behind the provider', () => {
-  it('is started once under StrictMode and keeps polling', async () => {
+  it('is started once under StrictMode and checks again on a return to the foreground', async () => {
     const r = rig();
     mount(
       <StrictMode>
@@ -141,10 +139,11 @@ describe('the runtime behind the provider', () => {
     expect(r.stopCount()).toBe(0);
 
     const checks = r.world.metaCount();
+    r.world.clock.advance(60);
     await act(async () => {
-      await r.world.timers.advance(POLL_MS);
+      r.world.returnToForeground();
     });
-    await until(() => r.world.metaCount() > checks, 'the next scheduled check');
+    await until(() => r.world.metaCount() > checks, 'the next check');
   });
 
   it('is stopped when the provider unmounts, and checks nothing afterwards', async () => {
@@ -161,7 +160,8 @@ describe('the runtime behind the provider', () => {
 
     expect(r.stopCount()).toBe(1);
     const checks = r.world.metaCount();
-    await r.world.timers.advance(POLL_MS);
+    r.world.clock.advance(1000);
+    r.world.returnToForeground();
     await settle();
     expect(r.world.metaCount()).toBe(checks);
   });

@@ -24,10 +24,7 @@ export interface State {
   active?: Install;
   pending?: Install;
   lastCheck?: number;
-  lastPollAfter?: number;
-  backoffStep?: number;
   notBefore?: number;
-  checkNowAt?: number;
   languageOverride?: string;
   /** "<checksum>\n<locale>" of the last held-manifest locale fetch, so it runs once per change. */
   localeFetched?: string;
@@ -146,7 +143,7 @@ export function sanitiseInstall(raw: unknown): Install | undefined {
   });
 }
 
-const NUMBER_FIELDS = ['lastCheck', 'lastPollAfter', 'backoffStep', 'notBefore', 'checkNowAt'] as const;
+const NUMBER_FIELDS = ['lastCheck', 'notBefore'] as const;
 const STRING_FIELDS = ['languageOverride', 'localeFetched', 'installId', 'sdkVersion'] as const;
 
 /** Keeps every field that has the right shape and drops the rest; never throws. */

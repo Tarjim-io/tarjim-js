@@ -11,7 +11,7 @@
 (function (root) {
   'use strict';
 
-  var VERSION = '0.1.0';
+  var VERSION = '0.1.1';
   var API_VERSION = '2026-07-29';
   var REQUEST_TIMEOUT_MS = 20000;
   var ALLOWED_ATTRIBUTES = ['alt', 'title', 'width', 'height', 'loading'];
@@ -66,9 +66,10 @@
   }
 
   // The version travels raw in the query string, so it is reduced to three plain integers first.
-  // It never makes start() fail.
+  // Null means no usable version, and none is sent: the server then serves the newest app. It never
+  // makes start() fail.
   function normaliseAppVersion(value) {
-    if (typeof value !== 'string') return '0.0.0';
+    if (typeof value !== 'string') return null;
     var text = value.charAt(0) === 'v' ? value.slice(1) : value;
     var run = /^[0-9.]*/.exec(text)[0];
     var numbers = run.split('.');
@@ -78,13 +79,12 @@
     var parts = [];
     for (var i = 0; i < 3; i++) {
       var digits = numbers[i] === undefined ? '0' : numbers[i];
-      if (!/^[0-9]+$/.test(digits)) return '0.0.0';
-      var number = parseInt(digits, 10);
-      if (!Number.isSafeInteger(number)) return '0.0.0';
-      parts.push(String(number));
+      if (!/^[0-9]+$/.test(digits)) return null;
+      var part = digits.replace(/^0+(?=[0-9])/, '');
+      if (part.length > 9) return null;
+      parts.push(part);
     }
-    var result = parts.join('.');
-    return result.length > 32 ? '0.0.0' : result;
+    return parts.join('.');
   }
 
   // ---------------------------------------------------------------------------------------------
@@ -511,8 +511,8 @@
     }
 
     var appVersion = normaliseAppVersion(config.appVersion);
-    if (appVersion !== config.appVersion) {
-      report('app-version-normalised', 'appVersion was normalised', { from: String(config.appVersion), to: appVersion });
+    if (config.appVersion !== undefined && (appVersion === null || appVersion !== config.appVersion)) {
+      report('app-version-normalised', 'appVersion was normalised', { from: String(config.appVersion), to: appVersion === null ? 'none' : appVersion });
     }
 
     var session = {
@@ -520,9 +520,8 @@
       fetch: fetchFunction,
       report: report,
       keyHeaders: { 'X-Tarjim-Apikey': config.apiKey, 'X-Tarjim-Api-Version': API_VERSION },
-      metaUrl:
-        config.deliveryUrl + '?appVersion=' + appVersion + '&platform=web&sdkVersion=ref-' + VERSION +
-        '&release=0&language=',
+      versionSent: appVersion !== null,
+      metaUrl: metaUrl(config.deliveryUrl, appVersion),
     };
 
     var meta = await readMeta(session, config.language || config.fallbackLanguage);
@@ -556,6 +555,11 @@
     });
   }
 
+  function metaUrl(deliveryUrl, appVersion) {
+    var version = appVersion === null ? '' : 'appVersion=' + appVersion + '&';
+    return deliveryUrl + '?' + version + 'platform=web&sdkVersion=ref-' + VERSION + '&release=0&language=';
+  }
+
   // Reads and checks the meta document for a language; null when it is unusable. Everything but a
   // stage with no release yet is reported.
   async function readMeta(session, language) {
@@ -565,6 +569,13 @@
       return null;
     }
     var body = parseJson(answer.bytes);
+    // Transitional: goes when the API stops requiring appVersion. Until then a client with no version
+    // would get nothing at all, so it is served as the oldest app rather than the newest.
+    if (answer.status === 400 && !session.versionSent && isObject(body) && body.code === 'delivery.app_version_required') {
+      session.versionSent = true;
+      session.metaUrl = metaUrl(session.config.deliveryUrl, '0.0.0');
+      return readMeta(session, language);
+    }
     if (answer.status !== 200) {
       // A stage with no release yet is a normal state, not a fault.
       if (answer.status === 404 && isObject(body) && body.code === 'delivery.stage_unreleased') return null;
@@ -581,9 +592,11 @@
       session.report('meta-schema', 'The meta document has an unsupported schema version');
       return null;
     }
-    // A key that is bound to no track cannot receive a release, so nothing else is requested.
-    // Anything but a string counts as unbound, a missing field included.
-    if (typeof body.track !== 'string') {
+    // A server names an unbound key's binding `track: null`. Such a key acts with its creator's rights,
+    // so nothing else is requested. A server that answers an unbound key with 401 never reaches this
+    // branch, and a meta that carries neither name is not this answer.
+    var named = typeof body.distribution === 'string' || typeof body.track === 'string';
+    if (!named && (body.distribution !== undefined || body.track !== undefined)) {
       session.report('unbound-key', 'The API key is not bound to a track');
       return null;
     }

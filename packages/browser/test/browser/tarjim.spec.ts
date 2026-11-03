@@ -171,6 +171,7 @@ test.describe('Tarjim.start in a real browser', () => {
     await startInPage(page, { waitForContent: 4000 });
 
     state.current = 1;
+    await page.clock.setFixedTime(Date.now() + 61_000);
     const during = await page.evaluate(async () => {
       const runtime = (window as any).runtime;
       const result = await runtime.checkNow();
