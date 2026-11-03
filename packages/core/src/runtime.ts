@@ -5,6 +5,7 @@ import { createDeliveryClient } from './delivery-client.js';
 import { deliveryUrlProblem } from './delivery-url.js';
 import { normaliseAppVersion } from './app-version.js';
 import { isRecord } from './json.js';
+import { bundleOrderOf } from './manifest.js';
 import { matchLocale, selectLocale } from './locale.js';
 import { createSnapshot, readingBundle } from './resolver.js';
 import type { BundleRef, FormatArgs, LookupOptions, Snapshot, TarjimEntry } from './resolver.js';
@@ -313,7 +314,7 @@ export async function createRuntime(given: TarjimConfig, platform: Platform): Pr
       keyCase,
       report: ({ code, details }) => void report(code, details as Details | undefined),
     });
-    return { snapshot, sig: [locale, ...Object.values(slots).sort()].join(), missing };
+    return { snapshot, sig: [locale, ...Object.values(slots).sort(), ...(install ? bundleOrderOf(install.manifest) : [])].join(), missing };
   }
 
   const explicit = typeof config.language === 'string' && config.language ? { explicit: config.language } : {};

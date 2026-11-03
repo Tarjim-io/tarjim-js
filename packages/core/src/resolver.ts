@@ -1,5 +1,6 @@
 import { isRecord, parseJson } from './json.js';
 import { localeKey } from './locale.js';
+import { bundleOrderOf } from './manifest.js';
 import { decodeSlice, foldKey } from './slice.js';
 import type { DecodedSlice, Leaf, Slice } from './slice.js';
 import { slotName } from './store.js';
@@ -226,7 +227,8 @@ function serve(input: SnapshotInput, defaultKey: string | undefined, report: Rep
   const copiesOf: Source[] = [];
   if (install) {
     const chosen = new Map<string, { id: string; bundle: ManifestBundle }>();
-    for (const [id, bundle] of Object.entries(install.manifest.bundles)) {
+    for (const id of bundleOrderOf(install.manifest)) {
+      const bundle = install.manifest.bundles[id]!;
       listed.add(id);
       const key = bundleKey(bundle.type, bundle.name);
       const current = chosen.get(key);
@@ -246,7 +248,7 @@ function serve(input: SnapshotInput, defaultKey: string | undefined, report: Rep
   // bundle readable.
   const unmatched = embedded.filter((slice) => !listed.has(slice.bundle)).map((slice) => sourceOf(slice, []));
   if (defaultKey !== undefined) served.set(defaultKey, [...(served.get(defaultKey) ?? []), ...unmatched]);
-  // The manifest lists bundles in the distribution's order and the later one wins a shared key.
+  // The later bundle in the distribution's order wins a shared key.
   // Downloaded text always beats embedded text, whichever bundle each belongs to.
   return { served, merged: [...downloads.reverse(), ...copiesOf.reverse(), ...unmatched] };
 }

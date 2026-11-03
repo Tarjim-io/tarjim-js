@@ -1,9 +1,17 @@
 import { HEX64, entriesOf, isRecord } from './json.js';
 import type { Manifest, ManifestBundle, SliceFile } from './types.js';
 
+const own = (object: object, key: string): boolean => Object.prototype.hasOwnProperty.call(object, key);
+
 // Lenient on purpose: an entry that is not understood is dropped, never reported. Only the JSON
 // file of a slice is kept; no other file type is ever read, so a native bundle, which lists none,
 // is dropped whole. Left in, it could shadow a JSON bundle of the same type and name.
+/** Every bundle id, the last one winning a shared key. A bundle the list omits goes first, so it never beats a listed one. */
+export function bundleOrderOf(manifest: Manifest): string[] {
+  const listed = [...new Set(manifest.bundleOrder ?? [])].filter((id) => own(manifest.bundles, id));
+  return [...Object.keys(manifest.bundles).filter((id) => !listed.includes(id)), ...listed];
+}
+
 export function decodeManifest(value: unknown): Manifest | null {
   return decode(value, (files) => (isRecord(files) ? files['json'] : undefined));
 }
@@ -45,6 +53,9 @@ function decode(value: unknown, jsonFileOf: (files: unknown) => unknown): Manife
       if (Object.keys(decoded).length) manifest.slices[id] = decoded;
       else delete manifest.bundles[id];
     }
+    const order = value['bundleOrder'];
+    const named = Array.isArray(order) ? order.filter((id): id is string => typeof id === 'string') : [];
+    if (named.length) manifest.bundleOrder = named;
     return manifest;
   } catch {
     return null;

@@ -1,5 +1,6 @@
 import { clampRetryAfter, dueAt, failureWaitSeconds, notBeforeOf } from './cadence.js';
 import { mayBeStaleSignature } from './delivery-client.js';
+import { bundleOrderOf } from './manifest.js';
 import { BUSY, composeSlots, parseSlot, slotName } from './store.js';
 import type { Install, State, Store } from './store.js';
 import type { DeliveryClient, Manifest, Meta, MetaIdentity, SliceFile } from './types.js';
@@ -421,6 +422,8 @@ async function poll(context: CycleContext, state: State): Promise<CycleResult> {
   const install = build(context, { checksum: meta.checksum, releaseId: meta.releaseId, manifest }, previous, [...wanted.keys()], got);
   // A dropped bundle or locale changes what is served as much as a new text does.
   const changed =
+    // The same files in another order can change which bundle wins a key.
+    (known !== undefined && bundleOrderOf(known.manifest).join() !== bundleOrderOf(manifest).join()) ||
     Object.keys(known?.slots ?? {}).some((slot) => parseSlot(slot)?.locale === locale && install.slots[slot] === undefined) ||
     Object.entries(install.slots).some(([slot, hash]) => hash !== previous?.slots[slot]);
   // A release that changes nothing served is still adopted, so the next check does not fetch its manifest again.

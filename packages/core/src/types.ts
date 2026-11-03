@@ -59,6 +59,8 @@ export interface SliceFile {
 export interface Manifest {
   schemaVersion: number;
   bundles: Record<string, ManifestBundle>;
+  /** Bundle ids in the distribution's listed order; a later one wins a shared key. */
+  bundleOrder?: string[];
   /** bundle id → locale → the JSON file. Only JSON files are kept. */
   slices: Record<string, Record<string, SliceFile>>;
 }

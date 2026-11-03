@@ -116,6 +116,10 @@ network failure exactly like a 5xx.
     blank on purpose. JSON slices already carry their blanks, so a JSON bundle never has the field.
 - A bundle's locales are the locales its `slices` entry lists. That list can differ between bundles and
   need not include `baseLocale`. Never use `baseLocale` to choose a language.
+- `bundleOrder`, when present, lists the bundle ids in the order the distribution lists them, for
+  example `["b12", "b7"]`. Later in the list wins a shared key (section 6). Without it, use the order of
+  the keys of the `bundles` object as received. Ignore an id with no bundle. A bundle the list omits
+  comes before the listed ones.
 - A manifest with no `json` file at all has nothing for a JSON client: keep what you hold and report
   it. Do not install it.
 
@@ -202,7 +206,7 @@ A JSON slice:
   serves. A name the manifest lacks loads nothing and is reported once; the app's bundled text stands
   for it. A client can read what it loaded in one of two ways:
   - **Merged:** a lookup reads one view of every loaded bundle. When two bundles carry a key, the one
-    listed later wins, in the order of the manifest's `bundles` object. Do not sort it. A plural family
+    listed later wins, in the order section 3 gives. Do not sort ids. A plural family
     or a string array comes whole from the winning bundle, never mixed. A key left empty in the later
     bundle is not translated there, so the earlier bundle's value stands. Downloaded text comes before
     any embedded text.
