@@ -60,7 +60,7 @@ page, a network failure), you get a client whose lookups return the key names, p
 |---|---|
 | `deliveryUrl` | required. The delivery URL from the console, used as given. |
 | `apiKey` | required. A delivery key bound to a track and a stage. |
-| `appVersion` | required. Your site's version, `MAJOR.MINOR.PATCH`. A `v` prefix or a suffix is stripped. |
+| `appVersion` | Your site's version, `MAJOR.MINOR.PATCH`. A `v` prefix or a suffix is stripped. Without one, the site is served as the newest app. |
 | `defaultBundle` | required. `{ type: 'namespace' \| 'custom', name }`, the bundle lookups read by default. |
 | `fallbackLanguage` | required. Served when `language` is not in the release. |
 | `language` | the locale to serve; defaults to `fallbackLanguage` |
