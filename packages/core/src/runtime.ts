@@ -5,8 +5,9 @@ import { createDeliveryClient } from './delivery-client.js';
 import { deliveryUrlProblem } from './delivery-url.js';
 import { normaliseAppVersion } from './app-version.js';
 import { isRecord } from './json.js';
+import { bundleOrderOf } from './manifest.js';
 import { matchLocale, selectLocale } from './locale.js';
-import { createSnapshot } from './resolver.js';
+import { createSnapshot, readingBundle } from './resolver.js';
 import type { BundleRef, FormatArgs, LookupOptions, Snapshot, TarjimEntry } from './resolver.js';
 import { createScheduler } from './scheduler.js';
 import type { Scheduler, Timers, Visibility } from './scheduler.js';
@@ -21,7 +22,12 @@ export interface TarjimConfig {
   apiKey: string;
   /** Your app's version; ranges on a release are matched against it. Absent: served as the newest app. */
   appVersion?: string;
-  defaultBundle: BundleRef;
+  /** How an unqualified lookup reads bundles. Defaults to `'separate'` with a `defaultBundle`, else `'merged'`. */
+  bundleMode?: 'merged' | 'separate';
+  /** The one bundle lookups read in `'separate'` mode. */
+  defaultBundle?: BundleRef;
+  /** The bundle names to load. Defaults to every bundle of the release; it can only narrow that. */
+  bundles?: string[];
   fallbackLanguage: string;
   language?: string;
   /** Save a language chosen with setLanguage even when `language` was passed. */
@@ -64,6 +70,8 @@ export interface Tarjim {
   setLanguage(language: string): Promise<void>;
   checkNow(): Promise<CheckResult>;
   activatePendingUpdate(): boolean;
+  /** Loads one more bundle from the release already held; true once its text is in. */
+  loadBundle(name: string): Promise<boolean>;
   setInstallId(enabled: boolean): Promise<void>;
   /** Calls the listener on every event; returns a function that removes it. */
   on(type: TarjimEventType, listener: (event: TarjimEvent) => void): () => void;
@@ -110,7 +118,6 @@ interface Served {
 }
 
 const DAY_MS = 86_400_000;
-const NO_BUNDLE: BundleRef = { type: 'namespace', name: '' };
 // Server codes look like `delivery.forbidden`; anything else from a server is not copied into a report.
 const CODE = /^[\w.-]{1,64}$/;
 
@@ -127,9 +134,12 @@ const MESSAGES: Record<string, string> = {
   'manifest-schema': 'A release uses a newer manifest format; not installed.',
   'manifest-integrity': 'A manifest failed its checksum and was rejected.',
   'manifest-unreadable': 'A manifest could not be read.',
+  'no-file-type': 'A release has no file this client can read; the held text is kept.',
   'slice-integrity': 'A slice failed its hash and was not used.',
   'slice-schema': 'A slice uses a newer format; not used.',
   storage: 'Writing to storage failed.',
+  'bundle-unknown': 'A bundle name given to the client is not in the release, so nothing was loaded for it.',
+  'default-bundle-ignored': 'defaultBundle has no effect when bundleMode is merged.',
   'attribute-dropped': 'Attributes outside the allowed list were dropped.',
   'media-url-rejected': 'A media URL that is not https was rejected.',
 };
@@ -146,16 +156,22 @@ const safe = (fn: () => void): void => {
 export async function createRuntime(given: TarjimConfig, platform: Platform): Promise<Tarjim> {
   const valid = isRecord(given);
   const config = (valid ? given : {}) as TarjimConfig;
-  const { deliveryUrl, apiKey, defaultBundle, fallbackLanguage } = config;
+  const { deliveryUrl, apiKey, fallbackLanguage } = config;
+  const mode = config.bundleMode ?? (config.defaultBundle === undefined ? 'merged' : 'separate');
+  const defaultBundle = readingBundle({ bundleMode: mode, ...(config.defaultBundle === undefined ? {} : { defaultBundle: config.defaultBundle }) });
   const now = (): number => platform.now();
   const bundleOk =
     isRecord(defaultBundle) && (defaultBundle.type === 'namespace' || defaultBundle.type === 'custom') && typeof defaultBundle.name === 'string';
   const problem =
     deliveryUrlProblem(deliveryUrl) ??
     (apiKey && typeof apiKey === 'string' ? null : 'apiKey is required') ??
-    (bundleOk ? null : 'defaultBundle needs a type and a name') ??
+    (mode === 'merged' || mode === 'separate' ? null : 'bundleMode must be "merged" or "separate"') ??
+    (mode !== 'separate' || bundleOk ? null : 'defaultBundle needs a type and a name') ??
+    (config.bundles === undefined || (Array.isArray(config.bundles) && config.bundles.every((name) => typeof name === 'string')) ? null : 'bundles must be a list of bundle names') ??
     (fallbackLanguage && typeof fallbackLanguage === 'string' ? null : 'fallbackLanguage is required');
   if (problem !== null && config.strict) throw new TarjimConfigError(problem);
+  const ignoredDefault = mode === 'merged' && config.defaultBundle !== undefined;
+  if (ignoredDefault && config.strict) throw new TarjimConfigError('defaultBundle has no effect when bundleMode is merged');
   const keyCase = config.keyCase === 'lower' ? 'lower' : 'exact';
   if (config.strict && config.keyCase !== undefined && config.keyCase !== keyCase) throw new TarjimConfigError('keyCase must be "exact" or "lower"');
 
@@ -226,6 +242,10 @@ export async function createRuntime(given: TarjimConfig, platform: Platform): Pr
   }
 
   if (offline !== undefined) await report(offline, undefined, problem ?? undefined);
+  if (ignoredDefault) await report('default-bundle-ignored');
+  // Grows when loadBundle adds a name, so the next release brings that bundle too.
+  const selected: Set<string> | undefined = Array.isArray(config.bundles) ? new Set(config.bundles) : undefined;
+  const isSelected = (manifest: Install['manifest'], bundleId: string): boolean => !selected || selected.has(manifest.bundles[bundleId]?.name as string);
   const embedded = (Array.isArray(config.embedded) ? config.embedded : []).filter(isRecord) as Slice[];
   if (config.embedded !== undefined && !Array.isArray(config.embedded)) await report('embedded-invalid');
   const appVersion = normaliseAppVersion(config.appVersion);
@@ -254,19 +274,25 @@ export async function createRuntime(given: TarjimConfig, platform: Platform): Pr
 
   let activeInstall = state.active;
   const localesOf = (install: Install | undefined): string[] => [
-    ...Object.values(install?.manifest.slices ?? {}).flatMap((files) => Object.keys(files)),
+    ...Object.entries(install?.manifest.slices ?? {}).flatMap(([id, files]) => (isSelected(install!.manifest, id) ? Object.keys(files) : [])),
     ...embedded.map((slice) => slice.locale).filter((locale) => typeof locale === 'string'),
   ];
   const lacks = (install: Install, locale: string): boolean =>
-    [...wantedSlots(install.manifest, locale).keys()].some((slot) => install.slots[slot] === undefined);
-  const bundle = isRecord(defaultBundle) ? defaultBundle : NO_BUNDLE;
+    [...wantedSlots(install.manifest, locale, selected).keys()].some((slot) => install.slots[slot] === undefined);
+  const listsName = (install: Install, name: string): boolean => Object.values(install.manifest.bundles).some((entry) => entry.name === name);
 
   async function load(install: Install | undefined, locale: string, fallback?: Install): Promise<Served> {
     const slots: Record<string, string> = {};
     const bytes = new Map<string, Uint8Array>();
     const missing: string[] = [];
     if (install && store) {
-      const mine = Object.entries(install.slots).filter(([slot]) => parseSlot(slot)?.locale === locale);
+      for (const name of selected ?? []) {
+        if (!listsName(install, name)) void report('bundle-unknown', { name });
+      }
+      const mine = Object.entries(install.slots).filter(([slot]) => {
+        const parsed = parseSlot(slot);
+        return parsed?.locale === locale && isSelected(install.manifest, parsed.bundle);
+      });
       const held = await store.readSlices(mine.flatMap(([slot, hash]) => [hash, fallback?.slots[slot] ?? hash]));
       for (const [slot, hash] of mine) {
         // A file that cannot be read back is served from the install it replaces, and owed.
@@ -283,12 +309,12 @@ export async function createRuntime(given: TarjimConfig, platform: Platform): Pr
       slices: bytes,
       embedded,
       locale,
-      defaultBundle: bundle,
+      ...(isRecord(defaultBundle) ? { defaultBundle } : {}),
       legacyPercentPlaceholders: config.legacyPercentPlaceholders === true,
       keyCase,
       report: ({ code, details }) => void report(code, details as Details | undefined),
     });
-    return { snapshot, sig: [locale, ...Object.values(slots).sort()].join(), missing };
+    return { snapshot, sig: [locale, ...Object.values(slots).sort(), ...(install ? bundleOrderOf(install.manifest) : [])].join(), missing };
   }
 
   const explicit = typeof config.language === 'string' && config.language ? { explicit: config.language } : {};
@@ -355,6 +381,7 @@ export async function createRuntime(given: TarjimConfig, platform: Platform): Pr
           sdkVersion: SDK_VERSION,
           now,
           locale: () => target,
+          bundles: () => selected,
           identity: () => ({
             ...(analytics && installId ? { installId } : {}),
             ...(osVersion === undefined ? {} : { osVersion }),
@@ -496,7 +523,7 @@ export async function createRuntime(given: TarjimConfig, platform: Platform): Pr
         await adopt();
       }
     }
-    const match = typeof language === 'string' ? matchLocale(language, localesOf(activeInstall)) : null;
+    const match = typeof language === 'string' ? matchLocale(language, localesOf(activeInstall), fallbackLanguage) : null;
     if (match === null) throw new TarjimLanguageError('There is no text for that language.');
     if (match === current.snapshot.language) return;
     const before = target;
@@ -569,6 +596,25 @@ export async function createRuntime(given: TarjimConfig, platform: Platform): Pr
       void whenFree(() => store.withLock(() => store.writeInstall(next.install, 'active')), (result) => result === BUSY).catch(() => undefined);
       if (swap(next.served)) emit('activated');
       return true;
+    },
+
+    loadBundle(name) {
+      const turn = changing.then(async () => {
+        if (typeof name !== 'string') return false;
+        const held = activeInstall;
+        if (held && !listsName(held, name)) {
+          await report('bundle-unknown', { name });
+          return false;
+        }
+        selected?.add(name);
+        if (!held) return false;
+        if (selected && live) await fill();
+        const pending = store && (await store.readState()).pending;
+        if (pending) await prepare(pending);
+        return activeInstall !== undefined && !lacks(activeInstall, current.snapshot.language);
+      });
+      changing = turn.catch(() => undefined);
+      return turn;
     },
 
     async setInstallId(enabled) {

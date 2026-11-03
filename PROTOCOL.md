@@ -72,7 +72,7 @@ The body of an error is `application/problem+json` with a `code`.
 | 400 `delivery.app_version_required` | `appVersion` missing or malformed | ask once more with `0.0.0` if you sent none; otherwise a configuration error. Fix the client. |
 | 401 `unauthorized` | key missing, malformed or revoked | configuration error |
 | 403 `delivery.apikey_project_mismatch`, `forbidden` | the key belongs to another project, or may not read delivery | configuration error |
-| 404 `delivery.track_not_found`, `delivery.stage_not_found` | the binding names something that no longer exists | configuration error |
+| 404 `delivery.distribution_not_found`, `delivery.track_not_found`, `delivery.stage_not_found` | the URL or the binding names something that does not exist, or the key belongs to another distribution | configuration error |
 | 404 `delivery.stage_unreleased` | nothing released to this stage, or nothing for this `appVersion`, yet | normal. Keep what you hold. |
 | 404 `not-found` | no such project | configuration error |
 | 429 | throttled | keep what you hold; wait at least `Retry-After` if present |
@@ -96,7 +96,8 @@ network failure exactly like a 5xx.
   },
   "slices": {
     "ns7": { "en": { "json": { "hash": "<sha256>", "size": 311, "transferSize": 245 }, "strings": { … } } }
-  }
+  },
+  "bundleOrder": ["ns7", "b3"]
 }
 ```
 
@@ -106,6 +107,25 @@ network failure exactly like a 5xx.
   request only a locale the manifest lists, never one you constructed.
 - Look a bundle up by `type` AND `name`, since a custom bundle may share a namespace's name. If two
   bundles share both, the lowest numeric id wins (`ns7` before `ns10`).
+- A custom bundle entry may carry two more fields. Ignore both in a JSON client.
+  - `format`: `"ios"` or `"android"`. It is written only when the bundle is NOT a JSON bundle, so an
+    entry without it is a JSON bundle. A bundle of format `ios` lists only `strings`/`stringsdict`
+    files, and an `android` bundle only `xml`. Neither lists a `json` file, so a JSON client finds no
+    slice for it and must skip it, never report it.
+  - `emptyValues`: `"empty_string"`. It is written only on an `ios`/`android` bundle set to write empty
+    values. Its native files then hold `"k" = "";` / `<string name="k">""</string>` for a value left
+    blank on purpose. JSON slices already carry their blanks, so a JSON bundle never has the field.
+- A bundle's locales are the locales its `slices` entry lists. That list can differ between bundles and
+  need not include `baseLocale`. Never use `baseLocale` to choose a language.
+- A release manifest carries a top-level `bundleOrder` array: the `bundles` keys (`b<id>`, `ns<id>`) in
+  the order the app's distribution lists them. Read the order from `bundleOrder`, never from the order
+  of the `bundles` object's keys, which JSON does not guarantee across languages. Where two bundles hold
+  the same key in a merged view, the bundle listed LATER in `bundleOrder` wins (section 6). Ignore an id
+  with no bundle; a bundle the list omits comes before the listed ones. A manifest without `bundleOrder`
+  (a release published before it existed) has no defined order: fall back to the `bundles` keys sorted
+  by id, `ns*` before `b*`, numeric ascending, which is how those manifests were written.
+- A manifest with no `json` file at all has nothing for a JSON client: keep what you hold and report
+  it. Do not install it.
 
 ## 4. Delivery modes and object URLs
 
@@ -119,7 +139,7 @@ The object URL of a file is `slicesBaseUrl + hash + "." + fileType`, plus the si
 Build it only when `hash` is 64 lowercase hex characters. **Never send the key headers to any origin but
 the delivery URL's**, whatever a response says.
 
-- In CDN mode, a 403 on an object means the signature expired or the object is gone; the two cannot
+- In CDN mode, a 403 (or a 404 or 503) on an object or on the manifest means the signature expired or the object is gone; the two cannot
   be told apart. Re-read `meta` **once**. If its `checksum` is unchanged, retry with the new
   `signedQuery`; if the checksum changed, the stage moved to another release: give up on these files.
   If the retry fails too, keep what you hold for that file and try again at the next check. A browser
@@ -177,9 +197,27 @@ A JSON slice:
 
 ## 6. Choosing what to serve
 
-- Serve ONE locale per user: the one asked for if the manifest lists it, otherwise your fallback
-  language, as a whole. A key missing in that locale shows its fallback text (or its name). It is
+- Serve ONE locale per user. Match the one asked for against the manifest's list (BCP 47: language,
+  script, region; case-insensitive), in this order: the exact tag; a less specific form of it (`de` for
+  `de-CH`); a sibling of the same language and script (your fallback language if it is one of them,
+  else the least specific, then the first in sorted order); your fallback language; your bundled text.
+  The server names no fallback: it is your app's configuration. A client may be simpler, as the
+  reference client is: the exact tag, then the fallback language.
+- That locale is served as a whole. A key missing in that locale shows its fallback text (or its name). It is
   never taken from another locale, which would mix languages on one screen.
+- **Bundles.** A release can hold several bundles of your file type. A client may load all of them, the
+  default, or only those an app names by `bundles[<id>].name`. It can only narrow what the release
+  serves. A name the manifest lacks loads nothing and is reported once; the app's bundled text stands
+  for it. A client can read what it loaded in one of two ways:
+  - **Merged:** a lookup reads one view of every loaded bundle. When two bundles carry a key, the one
+    listed later wins, in the order section 3 gives. Do not sort ids. A plural family
+    or a string array comes whole from the winning bundle, never mixed. A key left empty in the later
+    bundle is not translated there, so the earlier bundle's value stands. Downloaded text comes before
+    any embedded text.
+  - **Separate:** a lookup reads one bundle, so nothing is ever resolved across bundles and the
+    later-listed rule does not apply. The reference client works this way.
+- A further bundle may be loaded later, from the manifest you hold, without reading a newer one. If
+  `meta` names a newer release, install it whole, with every loaded bundle. Never mix two releases.
 - A client that holds a previous release switches to a new one only when every file it needs from it
   is verified, so a failed download never changes what is shown. A client that holds nothing (such
   as the reference client) may serve the files that verified and show key names for the rest.

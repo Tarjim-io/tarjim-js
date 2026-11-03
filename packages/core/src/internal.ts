@@ -3,7 +3,7 @@ export { SDK_VERSION, API_VERSION } from './version.js';
 export { normaliseAppVersion } from './app-version.js';
 export { deliveryUrlProblem } from './delivery-url.js';
 export { sha256Hex, verify } from './verifier.js';
-export { decodeManifest } from './manifest.js';
+export { decodeManifest, decodeStoredManifest, bundleOrderOf } from './manifest.js';
 export { createDeliveryClient } from './delivery-client.js';
 export type * from './types.js';
 export {
@@ -31,7 +31,7 @@ export { selectLocale, matchLocale } from './locale.js';
 export type { LocaleChoice, LocaleSource } from './locale.js';
 export { decodeSlice } from './slice.js';
 export type { DecodedSlice, Leaf, Slice } from './slice.js';
-export { createSnapshot, format } from './resolver.js';
+export { createSnapshot, readingBundle, format } from './resolver.js';
 export type { BundleRef, FormatArgs, FormatOptions, LookupOptions, Snapshot, SnapshotInput, SnapshotReport, TarjimEntry } from './resolver.js';
 export { createRuntime, TarjimConfigError, TarjimLanguageError } from './runtime.js';
 export type { CheckResult, Platform, Tarjim, TarjimConfig, TarjimEvent, TarjimEventType, TarjimReport } from './runtime.js';

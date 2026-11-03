@@ -15,15 +15,15 @@ export interface LocaleChoice {
 export function selectLocale(choice: LocaleChoice): { locale: string; source: LocaleSource } {
   const { explicit, saved, browser, fallback, universe, manifestHeld = false } = choice;
   if (explicit) {
-    const match = matchLocale(explicit, universe);
+    const match = matchLocale(explicit, universe, fallback);
     if (match !== null) return { locale: match, source: 'explicit' };
     // Before a manifest arrives the universe is at most the embedded slices, which must not veto the page's choice.
     if (!manifestHeld) return { locale: explicit, source: 'explicit' };
   }
-  const savedMatch = saved ? matchLocale(saved, universe) : null;
+  const savedMatch = saved ? matchLocale(saved, universe, fallback) : null;
   if (savedMatch !== null) return { locale: savedMatch, source: 'saved' };
   for (const wanted of browser) {
-    const match = matchLocale(wanted, universe);
+    const match = matchLocale(wanted, universe, fallback);
     if (match !== null) return { locale: match, source: 'browser' };
   }
   return { locale: matchLocale(fallback, universe) ?? fallback, source: 'fallback' };
@@ -56,8 +56,11 @@ function parse(tag: string): Parsed | null {
   }
 }
 
-/** The entry of `available` that serves `wanted`, spelled as `available` spells it, or null. */
-export function matchLocale(wanted: string, available: readonly string[]): string | null {
+/**
+ * The entry of `available` that serves `wanted`, spelled as `available` spells it, or null. Exact tag,
+ * then a less specific form of it, then a sibling: `fallback` if it is one, else the sorted rule.
+ */
+export function matchLocale(wanted: string, available: readonly string[], fallback?: string): string | null {
   const target = parse(wanted);
   if (target === null) return null;
 
@@ -73,5 +76,9 @@ export function matchLocale(wanted: string, available: readonly string[]): strin
     const [exactB, partsB] = rank(b);
     return exactA - exactB || partsA - partsB || (a.tag < b.tag ? -1 : a.tag > b.tag ? 1 : 0);
   });
-  return candidates[0]?.tag ?? null;
+  const best = candidates[0];
+  if (best === undefined || best.base === target.base) return best?.tag ?? null;
+  if (candidates.some((candidate) => target.base.startsWith(`${candidate.base}-`))) return best.tag;
+  const preferred = fallback === undefined ? undefined : candidates.find((candidate) => candidate.base === localeKey(fallback));
+  return (preferred ?? best).tag;
 }

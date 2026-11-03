@@ -1,4 +1,6 @@
 import { clampRetryAfter, dueAt, failureWaitSeconds, notBeforeOf } from './cadence.js';
+import { mayBeStaleSignature } from './delivery-client.js';
+import { bundleOrderOf } from './manifest.js';
 import { BUSY, composeSlots, parseSlot, slotName } from './store.js';
 import type { Install, State, Store } from './store.js';
 import type { DeliveryClient, Manifest, Meta, MetaIdentity, SliceFile } from './types.js';
@@ -20,6 +22,7 @@ export type CycleCondition =
   | { code: 'manifest-schema'; schemaVersion: unknown }
   | { code: 'manifest-integrity' }
   | { code: 'manifest-unreadable' }
+  | { code: 'no-file-type' }
   | { code: 'slice-integrity' }
   | { code: 'storage' };
 
@@ -39,6 +42,8 @@ export interface CycleContext {
   now(): number;
   /** The locale the visitor is served; undefined before one can be chosen. */
   locale(): string | undefined;
+  /** The bundle names to load; undefined means every bundle. */
+  bundles?(): ReadonlySet<string> | undefined;
   /** Identity fields the cycle does not own (install id, OS version, app build). */
   identity(): Pick<MetaIdentity, 'installId' | 'osVersion' | 'appBuild'>;
 }
@@ -62,9 +67,10 @@ function fileOf(manifest: Manifest, slot: string): SliceFile | undefined {
   return parsed && lookup(manifest, parsed.bundle, parsed.locale);
 }
 
-export function wantedSlots(manifest: Manifest, locale: string): Map<string, SliceFile> {
+export function wantedSlots(manifest: Manifest, locale: string, names?: ReadonlySet<string>): Map<string, SliceFile> {
   const wanted = new Map<string, SliceFile>();
   for (const bundle of Object.keys(manifest.slices)) {
+    if (names && !names.has(manifest.bundles[bundle]?.name as string)) continue;
     const file = lookup(manifest, bundle, locale);
     if (file) wanted.set(slotName(bundle, locale), file);
   }
@@ -227,13 +233,14 @@ async function heldLocale(context: CycleContext): Promise<CycleResult> {
   const top = state.pending ?? state.active;
   const locale = context.locale();
   if (!top || locale === undefined) return none();
-  const mark = `${top.checksum}\n${locale}`;
+  const names = context.bundles?.();
+  const mark = `${top.checksum}\n${locale}${names ? `\n${[...names].join()}` : ''}`;
   if (state.localeFetched === mark) return none();
 
   const plans: Array<{ role: Role; base: Install; wanted: Map<string, SliceFile> }> = [];
   for (const [role, base] of [['active', state.active], ['pending', state.pending]] as Array<[Role, Install | undefined]>) {
     const wanted = new Map<string, SliceFile>();
-    for (const [slot, file] of base ? wantedSlots(base.manifest, locale) : []) {
+    for (const [slot, file] of base ? wantedSlots(base.manifest, locale, names) : []) {
       // An owed slot belongs to the retry that a fresh meta triggers, which brings a fresh signature.
       if (base!.slots[slot] === undefined && !base!.owed.includes(slot)) wanted.set(slot, file);
     }
@@ -342,7 +349,7 @@ async function poll(context: CycleContext, state: State): Promise<CycleResult> {
       break;
   }
 
-  const { meta } = answer;
+  let { meta } = answer;
   const reject = (current: State): void => {
     current.rejectedChecksums = [...(current.rejectedChecksums ?? []), meta.checksum].slice(-MAX_REJECTED);
   };
@@ -374,7 +381,15 @@ async function poll(context: CycleContext, state: State): Promise<CycleResult> {
     return none();
   }
 
-  const fetched = await client.fetchManifest(meta);
+  let fetched = await client.fetchManifest(meta);
+  if (meta.authenticated !== true && mayBeStaleSignature(fetched)) {
+    // Once per check. A changed checksum means the stage moved: the next check takes that release whole.
+    const again = await client.fetchMeta(identity);
+    if (again.kind === 'received' && again.meta.checksum === meta.checksum) {
+      meta = again.meta;
+      fetched = await client.fetchManifest(meta);
+    }
+  }
   if (fetched.kind !== 'verified') {
     if (fetched.kind === 'checksumMismatch') {
       await settle(context, reject);
@@ -390,7 +405,13 @@ async function poll(context: CycleContext, state: State): Promise<CycleResult> {
     return { outcome: 'failed', conditions: [{ code: 'manifest-schema', schemaVersion: manifest.schemaVersion }] };
   }
 
-  const wanted = wantedSlots(manifest, locale);
+  // Installing this would take every text away, so what is held stays, and the checksum is not read again.
+  if (!Object.keys(manifest.slices).length) {
+    await settle(context, reject);
+    return { outcome: 'noChange', conditions: [{ code: 'no-file-type' }] };
+  }
+
+  const wanted = wantedSlots(manifest, locale, context.bundles?.());
   const got = await acquire(context, wanted, meta, identity);
   if (got.storage) {
     await settle(context);
@@ -401,6 +422,8 @@ async function poll(context: CycleContext, state: State): Promise<CycleResult> {
   const install = build(context, { checksum: meta.checksum, releaseId: meta.releaseId, manifest }, previous, [...wanted.keys()], got);
   // A dropped bundle or locale changes what is served as much as a new text does.
   const changed =
+    // The same files in another order can change which bundle wins a key.
+    (known !== undefined && bundleOrderOf(known.manifest).join() !== bundleOrderOf(manifest).join()) ||
     Object.keys(known?.slots ?? {}).some((slot) => parseSlot(slot)?.locale === locale && install.slots[slot] === undefined) ||
     Object.entries(install.slots).some(([slot, hash]) => hash !== previous?.slots[slot]);
   // A release that changes nothing served is still adopted, so the next check does not fetch its manifest again.

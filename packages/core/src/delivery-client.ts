@@ -60,6 +60,11 @@ function concat(chunks: Uint8Array[]): Uint8Array {
   return bytes;
 }
 
+/** A manifest failure a fresh signature may fix. A browser can show an expired one as a network failure. */
+export function mayBeStaleSignature(outcome: ManifestOutcome): boolean {
+  return outcome.kind === 'network' || (outcome.kind === 'unfetchable' && STALE_SIGNATURE.includes(outcome.status));
+}
+
 export function createDeliveryClient(options: DeliveryClientOptions): DeliveryClient {
   const { deliveryUrl, apiKey, platform } = options;
   let appVersion = normaliseAppVersion(options.appVersion);

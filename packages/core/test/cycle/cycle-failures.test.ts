@@ -118,7 +118,7 @@ describe('a manifest request that fails', () => {
     const w = await installed();
     const held = (await w.state()).active!;
     w.server.use(makeRelease({ content: { b1: 'v2' }, releaseId: 2 }));
-    w.server.on('manifest', edgeDown, { times: 1 });
+    w.server.on('manifest', edgeDown, { times: 2 });
 
     const result = await w.run();
     expect(result.outcome).toBe('failed');

@@ -1,8 +1,35 @@
 import { HEX64, entriesOf, isRecord } from './json.js';
 import type { Manifest, ManifestBundle, SliceFile } from './types.js';
 
+const own = (object: object, key: string): boolean => Object.prototype.hasOwnProperty.call(object, key);
+
 // Lenient on purpose: an entry that is not understood is dropped, never reported. Only the JSON
-// file of a slice is kept; no other file type is ever read.
+// file of a slice is kept; no other file type is ever read, so a native bundle, which lists none,
+// is dropped whole. Left in, it could shadow a JSON bundle of the same type and name.
+// Bundle ids compare by their number ("ns7" before "ns10"), then as text.
+export function compareBundleIds(a: string, b: string): number {
+  const x = a.replace(/\D/g, '').replace(/^0+/, '');
+  const y = b.replace(/\D/g, '').replace(/^0+/, '');
+  if (x.length !== y.length) return x.length - y.length;
+  if (x !== y) return x < y ? -1 : 1;
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
+const isNamespaceId = (id: string): number => (id.startsWith('ns') ? 0 : 1);
+
+/**
+ * Every bundle id, the last one winning a shared key. Never the order of the `bundles` keys, which JSON
+ * does not guarantee across languages: without `bundleOrder` the ids are sorted, as those manifests were
+ * written. A bundle the list omits goes first, so it never beats a listed one.
+ */
+export function bundleOrderOf(manifest: Manifest): string[] {
+  const listed = [...new Set(manifest.bundleOrder ?? [])].filter((id) => own(manifest.bundles, id));
+  const rest = Object.keys(manifest.bundles)
+    .filter((id) => !listed.includes(id))
+    .sort((a, b) => isNamespaceId(a) - isNamespaceId(b) || compareBundleIds(a, b));
+  return [...rest, ...listed];
+}
+
 export function decodeManifest(value: unknown): Manifest | null {
   return decode(value, (files) => (isRecord(files) ? files['json'] : undefined));
 }
@@ -41,8 +68,12 @@ function decode(value: unknown, jsonFileOf: (files: unknown) => unknown): Manife
           decoded[locale] = { hash, size: size as number };
         }
       }
-      manifest.slices[id] = decoded;
+      if (Object.keys(decoded).length) manifest.slices[id] = decoded;
+      else delete manifest.bundles[id];
     }
+    const order = value['bundleOrder'];
+    const named = Array.isArray(order) ? order.filter((id): id is string => typeof id === 'string') : [];
+    if (named.length) manifest.bundleOrder = named;
     return manifest;
   } catch {
     return null;

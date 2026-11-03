@@ -3,7 +3,7 @@ import type { ReactNode } from 'react';
 import { Tarjim } from '@tarjim/browser';
 import { TarjimLanguageError } from '@tarjim/core';
 import type { CheckResult, Tarjim as Runtime, TarjimConfig } from '@tarjim/core';
-import { createSnapshot, matchLocale, selectLocale } from '@tarjim/core/internal';
+import { createSnapshot, matchLocale, readingBundle, selectLocale } from '@tarjim/core/internal';
 
 export interface TarjimProviderProps {
   config: TarjimConfig;
@@ -29,12 +29,14 @@ export interface TarjimContextValue {
   checkNow(): Promise<CheckResult>;
   /** Shows a downloaded release now; false when none is waiting. */
   activatePendingUpdate(): boolean;
+  /** Loads one more bundle from the release already held; true once its text is in. */
+  loadBundle(name: string): Promise<boolean>;
   ready: boolean;
   pendingUpdate: boolean;
 }
 
 /** What the provider reads from either the running SDK or, on a hydrating page, the embedded text. */
-type Source = Pick<Runtime, 'language' | 'ready' | 't' | 'tArray' | 'entry' | 'setLanguage' | 'checkNow' | 'subscribe' | 'getVersion'>;
+type Source = Pick<Runtime, 'language' | 'ready' | 't' | 'tArray' | 'entry' | 'setLanguage' | 'checkNow' | 'loadBundle' | 'subscribe' | 'getVersion'>;
 
 const WAIT_MS = 1000;
 const RTL = ['ar', 'fa', 'he', 'ur', 'ps', 'yi', 'dv', 'ckb'];
@@ -70,13 +72,13 @@ function embeddedOnly(config: TarjimConfig, ready: boolean): Source {
   const locales = slices.flatMap((slice) => (typeof slice?.locale === 'string' ? [slice.locale] : []));
   const listeners = new Set<() => void>();
   let version = 0;
+  const reading = readingBundle(config);
   const open = (locale: string) =>
     createSnapshot({
       slices: new Map(),
       embedded: slices,
       locale,
-      // The SDK refuses a config without one on its own terms; a render must not fail first.
-      defaultBundle: config.defaultBundle ?? { type: 'namespace', name: '' },
+      ...(reading ? { defaultBundle: reading } : {}),
       legacyPercentPlaceholders: config.legacyPercentPlaceholders === true,
       keyCase: config.keyCase === 'lower' ? 'lower' : 'exact',
     });
@@ -108,6 +110,7 @@ function embeddedOnly(config: TarjimConfig, ready: boolean): Source {
       for (const listener of [...listeners]) listener();
     },
     checkNow: async () => 'notDue',
+    loadBundle: async () => false,
     subscribe(listener) {
       listeners.add(listener);
       return () => void listeners.delete(listener);
@@ -150,6 +153,7 @@ export function TarjimProvider({
       started: hydrating ? (Promise.resolve(local) as Promise<Source>) : undefined,
       setLanguage: (language: string): Promise<void> => (state.started ?? wait).then((source) => source.setLanguage(language)),
       checkNow: (): Promise<CheckResult> => (state.started ?? wait).then((source) => source.checkNow()),
+      loadBundle: (name: string): Promise<boolean> => (state.started ?? wait).then((source) => source.loadBundle(name)),
       activate: (): boolean => state.runtime?.activatePendingUpdate() ?? false,
     };
     return state;
@@ -265,6 +269,7 @@ export function TarjimProvider({
       language,
       setLanguage: own.setLanguage,
       checkNow: own.checkNow,
+      loadBundle: own.loadBundle,
       activatePendingUpdate: own.activate,
       ready: active.ready,
       pendingUpdate: pending,
