@@ -203,7 +203,8 @@ A JSON slice:
   for it. A client can read what it loaded in one of two ways:
   - **Merged:** a lookup reads one view of every loaded bundle. When two bundles carry a key, the one
     listed later wins, in the order of the manifest's `bundles` object. Do not sort it. A plural family
-    or a string array comes whole from the winning bundle, never mixed. Downloaded text comes before
+    or a string array comes whole from the winning bundle, never mixed. A key left empty in the later
+    bundle is not translated there, so the earlier bundle's value stands. Downloaded text comes before
     any embedded text.
   - **Separate:** a lookup reads one bundle, so nothing is ever resolved across bundles and the
     later-listed rule does not apply. The reference client works this way.
