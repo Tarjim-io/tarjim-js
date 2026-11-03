@@ -62,7 +62,7 @@ page, a network failure), you get a client whose lookups return the key names, p
 | `apiKey` | required. A delivery key bound to a track and a stage. |
 | `appVersion` | Your site's version, `MAJOR.MINOR.PATCH`. A `v` prefix or a suffix is stripped. Without one, the site is served as the newest app. |
 | `defaultBundle` | required. `{ type: 'namespace' \| 'custom', name }`, the bundle lookups read by default. |
-| `fallbackLanguage` | required. Served when `language` is not in the release. |
+| `fallbackLanguage` | required. Served when `language` is not in the release. This client matches the exact tag only, whatever its case: `en-AU` is not served by `en` or `en-GB`. The packages also try related regional forms. |
 | `language` | the locale to serve; defaults to `fallbackLanguage` |
 | `legacyPercentPlaceholders` | `true` to substitute `%%name%%` placeholders from named arguments |
 | `onReport` | `function (report) {}`, called once per kind of problem |
