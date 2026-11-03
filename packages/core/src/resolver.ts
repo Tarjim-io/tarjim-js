@@ -37,7 +37,8 @@ export interface SnapshotInput {
   slices: ReadonlyMap<string, Uint8Array>;
   embedded: readonly Slice[];
   locale: string;
-  defaultBundle: BundleRef;
+  /** The one bundle an unqualified lookup reads. Absent: it reads every bundle, merged. */
+  defaultBundle?: BundleRef;
   legacyPercentPlaceholders?: boolean;
   keyCase?: 'exact' | 'lower';
   report?: (report: SnapshotReport) => void;
@@ -192,7 +193,7 @@ function isHttpsUrl(value: string): boolean {
 type Report = (found: SnapshotReport) => void;
 
 // Everything a snapshot needs from its input, read once so that the snapshot holds on to none of it.
-function serve(input: SnapshotInput, defaultKey: string, report: Report): Map<string, Source[]> {
+function serve(input: SnapshotInput, defaultKey: string | undefined, report: Report): { served: Map<string, Source[]>; merged: Source[] } {
   const { install, locale } = input;
   const lower = input.keyCase === 'lower';
   const wantedKey = localeKey(locale);
@@ -221,6 +222,8 @@ function serve(input: SnapshotInput, defaultKey: string, report: Report): Map<st
   // that one has nothing for this locale: a lookup never moves on to another bundle of the name.
   const served = new Map<string, Source[]>();
   const listed = new Set<string>();
+  const downloads: Source[] = [];
+  const copiesOf: Source[] = [];
   if (install) {
     const chosen = new Map<string, { id: string; bundle: ManifestBundle }>();
     for (const [id, bundle] of Object.entries(install.manifest.bundles)) {
@@ -232,15 +235,25 @@ function serve(input: SnapshotInput, defaultKey: string, report: Report): Map<st
     for (const [key, { id, bundle }] of chosen) {
       const downloaded = readSlot(id);
       const copies = embedded.filter((slice) => slice.bundle === id);
-      served.set(key, (downloaded ? [downloaded, ...copies] : copies).map((slice) => sourceOf(slice, bundle.namespaces)));
+      const own = (downloaded ? [downloaded, ...copies] : copies).map((slice) => sourceOf(slice, bundle.namespaces));
+      served.set(key, own);
+      if (downloaded) downloads.push(own[0]!);
+      copiesOf.push(...own.slice(downloaded ? 1 : 0));
     }
   }
   // An embedded slice the manifest does not list has nothing to match it to a bundle, so it answers
   // the default one, after every source that was matched; that keeps a dropped or renumbered default
   // bundle readable.
   const unmatched = embedded.filter((slice) => !listed.has(slice.bundle)).map((slice) => sourceOf(slice, []));
-  served.set(defaultKey, [...(served.get(defaultKey) ?? []), ...unmatched]);
-  return served;
+  if (defaultKey !== undefined) served.set(defaultKey, [...(served.get(defaultKey) ?? []), ...unmatched]);
+  // The manifest lists bundles in the distribution's order and the later one wins a shared key.
+  // Downloaded text always beats embedded text, whichever bundle each belongs to.
+  return { served, merged: [...downloads.reverse(), ...copiesOf.reverse(), ...unmatched] };
+}
+
+/** The bundle an unqualified lookup reads; undefined means every bundle, merged. */
+export function readingBundle(config: { bundleMode?: unknown; defaultBundle?: BundleRef }): BundleRef | undefined {
+  return config.bundleMode === 'merged' ? undefined : config.defaultBundle;
 }
 
 export function createSnapshot(input: SnapshotInput): Snapshot {
@@ -254,8 +267,8 @@ export function createSnapshot(input: SnapshotInput): Snapshot {
       // A reporter that throws must not take a lookup down with it.
     }
   };
-  const defaultKey = bundleKey(input.defaultBundle.type, input.defaultBundle.name);
-  const served = serve(input, defaultKey, report);
+  const defaultKey = input.defaultBundle && bundleKey(input.defaultBundle.type, input.defaultBundle.name);
+  const { served, merged } = serve(input, defaultKey, report);
 
   const pluralRules = pluralRulesFor(locale);
 
@@ -268,7 +281,11 @@ export function createSnapshot(input: SnapshotInput): Snapshot {
   ): T | undefined {
     const requested: unknown = options?.bundle;
     const namespace: unknown = options?.namespace;
-    const sources = served.get(isRecord(requested) ? bundleKey(requested['type'], requested['name']) : defaultKey);
+    const sources = isRecord(requested)
+      ? served.get(bundleKey(requested['type'], requested['name']))
+      : defaultKey === undefined
+        ? merged
+        : served.get(defaultKey);
     for (const source of sources ?? []) {
       const names = typeof namespace === 'string' && !source.flat ? [namespace] : source.order;
       for (const name of names) {

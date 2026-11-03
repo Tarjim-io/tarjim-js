@@ -41,6 +41,8 @@ export interface CycleContext {
   now(): number;
   /** The locale the visitor is served; undefined before one can be chosen. */
   locale(): string | undefined;
+  /** The bundle names to load; undefined means every bundle. */
+  bundles?(): ReadonlySet<string> | undefined;
   /** Identity fields the cycle does not own (install id, OS version, app build). */
   identity(): Pick<MetaIdentity, 'installId' | 'osVersion' | 'appBuild'>;
 }
@@ -64,9 +66,10 @@ function fileOf(manifest: Manifest, slot: string): SliceFile | undefined {
   return parsed && lookup(manifest, parsed.bundle, parsed.locale);
 }
 
-export function wantedSlots(manifest: Manifest, locale: string): Map<string, SliceFile> {
+export function wantedSlots(manifest: Manifest, locale: string, names?: ReadonlySet<string>): Map<string, SliceFile> {
   const wanted = new Map<string, SliceFile>();
   for (const bundle of Object.keys(manifest.slices)) {
+    if (names && !names.has(manifest.bundles[bundle]?.name as string)) continue;
     const file = lookup(manifest, bundle, locale);
     if (file) wanted.set(slotName(bundle, locale), file);
   }
@@ -229,13 +232,14 @@ async function heldLocale(context: CycleContext): Promise<CycleResult> {
   const top = state.pending ?? state.active;
   const locale = context.locale();
   if (!top || locale === undefined) return none();
-  const mark = `${top.checksum}\n${locale}`;
+  const names = context.bundles?.();
+  const mark = `${top.checksum}\n${locale}${names ? `\n${[...names].join()}` : ''}`;
   if (state.localeFetched === mark) return none();
 
   const plans: Array<{ role: Role; base: Install; wanted: Map<string, SliceFile> }> = [];
   for (const [role, base] of [['active', state.active], ['pending', state.pending]] as Array<[Role, Install | undefined]>) {
     const wanted = new Map<string, SliceFile>();
-    for (const [slot, file] of base ? wantedSlots(base.manifest, locale) : []) {
+    for (const [slot, file] of base ? wantedSlots(base.manifest, locale, names) : []) {
       // An owed slot belongs to the retry that a fresh meta triggers, which brings a fresh signature.
       if (base!.slots[slot] === undefined && !base!.owed.includes(slot)) wanted.set(slot, file);
     }
@@ -406,7 +410,7 @@ async function poll(context: CycleContext, state: State): Promise<CycleResult> {
     return { outcome: 'noChange', conditions: [{ code: 'no-file-type' }] };
   }
 
-  const wanted = wantedSlots(manifest, locale);
+  const wanted = wantedSlots(manifest, locale, context.bundles?.());
   const got = await acquire(context, wanted, meta, identity);
   if (got.storage) {
     await settle(context);

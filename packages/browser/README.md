@@ -83,7 +83,9 @@ error classes `TarjimConfigError` and `TarjimLanguageError` (exported as values,
 | `deliveryUrl` | required. The delivery URL from the console, used as given. |
 | `apiKey` | required. A delivery key bound to a track and a stage. |
 | `appVersion` | Your site's release, `MAJOR.MINOR.PATCH` (a `v` prefix or a suffix is stripped). Change it on every deploy. Without one, the site is served as the newest app. |
-| `defaultBundle` | required. `{ type: 'namespace' \| 'custom', name }`, the bundle lookups read by default. |
+| `bundleMode` | how `t(key)` reads bundles. `'merged'`: one view of every loaded bundle; when two carry a key, the one listed later in the release wins. `'separate'`: one bundle only, `defaultBundle`. Defaults to `'separate'` when `defaultBundle` is given, else `'merged'`. |
+| `defaultBundle` | required in `'separate'` mode. `{ type: 'namespace' \| 'custom', name }`, the bundle lookups read. Has no effect in `'merged'` mode, and a report says so. |
+| `bundles` | the names of the bundles to load. Without it, every bundle in the release. It can only narrow what the release serves; a name the release lacks loads nothing, and a report (`bundle-unknown`) says so. |
 | `fallbackLanguage` | required. Served when no other language matches the release. |
 | `language` | the language to serve. Without it, the visitor's saved choice, then the browser's languages, then `fallbackLanguage`. |
 | `persistLanguage` | save a language chosen with `setLanguage` even when `language` is set. |
@@ -104,12 +106,13 @@ resolves there is no instance, so show your embedded text or a placeholder until
 
 | | |
 |---|---|
-| `t(key, args?, { bundle?, namespace? })` | the text, or the key name when missing. `args` fills `{name}` from an object, or `%s %d %1$s` from an array. `{ count: n }` picks a plural form. |
+| `t(key, args?, { bundle?, namespace? })` | the text, or the key name when missing. `bundle` reads that one bundle, in either mode. `args` fills `{name}` from an object, or `%s %d %1$s` from an array. `{ count: n }` picks a plural form. |
 | `tArray(key)` | a string array's items, in order |
 | `entry(key)` | `{ value, id, type, attributes, className }`, or `null`. For media keys, `value` is an `https:` URL; take a media URL from `entry(key)?.value` and never from `t()`, which returns the raw value unchecked. |
 | `language`, `ready` | the language being served; `ready` is always `true` on a resolved instance |
 | `setLanguage(language)` | resolves once the new language is active; rejects when the release has none |
 | `on(type, listener)` | `'downloaded'`, `'activated'` or `'languageChanged'`; returns a function that removes the listener |
+| `loadBundle(name)` | loads one more bundle from the release already held, without looking for a newer one. Resolves `true` once its text is in. A newer release later brings every loaded bundle together. |
 | `checkNow()`, `activatePendingUpdate()` | check for a release now (at most once per 60 seconds, shared with the checks at page load and on return to the tab, so right after a load it returns `notDue`); switch to a downloaded one |
 | `setInstallId(enabled)` | turn the install id on or off |
 | `updates()` | the same events as an async iterator |

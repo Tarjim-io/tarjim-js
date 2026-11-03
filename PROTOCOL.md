@@ -197,6 +197,18 @@ A JSON slice:
   reference client is: the exact tag, then the fallback language.
 - That locale is served as a whole. A key missing in that locale shows its fallback text (or its name). It is
   never taken from another locale, which would mix languages on one screen.
+- **Bundles.** A release can hold several bundles of your file type. A client may load all of them, the
+  default, or only those an app names by `bundles[<id>].name`. It can only narrow what the release
+  serves. A name the manifest lacks loads nothing and is reported once; the app's bundled text stands
+  for it. A client can read what it loaded in one of two ways:
+  - **Merged:** a lookup reads one view of every loaded bundle. When two bundles carry a key, the one
+    listed later wins, in the order of the manifest's `bundles` object. Do not sort it. A plural family
+    or a string array comes whole from the winning bundle, never mixed. Downloaded text comes before
+    any embedded text.
+  - **Separate:** a lookup reads one bundle, so nothing is ever resolved across bundles and the
+    later-listed rule does not apply. The reference client works this way.
+- A further bundle may be loaded later, from the manifest you hold, without reading a newer one. If
+  `meta` names a newer release, install it whole, with every loaded bundle. Never mix two releases.
 - A client that holds a previous release switches to a new one only when every file it needs from it
   is verified, so a failed download never changes what is shown. A client that holds nothing (such
   as the reference client) may serve the files that verified and show key names for the rest.

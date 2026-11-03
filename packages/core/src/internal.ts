@@ -31,7 +31,7 @@ export { selectLocale, matchLocale } from './locale.js';
 export type { LocaleChoice, LocaleSource } from './locale.js';
 export { decodeSlice } from './slice.js';
 export type { DecodedSlice, Leaf, Slice } from './slice.js';
-export { createSnapshot, format } from './resolver.js';
+export { createSnapshot, readingBundle, format } from './resolver.js';
 export type { BundleRef, FormatArgs, FormatOptions, LookupOptions, Snapshot, SnapshotInput, SnapshotReport, TarjimEntry } from './resolver.js';
 export { createRuntime, TarjimConfigError, TarjimLanguageError } from './runtime.js';
 export type { CheckResult, Platform, Tarjim, TarjimConfig, TarjimEvent, TarjimEventType, TarjimReport } from './runtime.js';

@@ -61,12 +61,13 @@ function Cart({ count }: { count: number }) {
 
 ### `useTarjim()`
 
-Returns `{ t, tArray, entry, language, setLanguage, checkNow, activatePendingUpdate, ready, pendingUpdate }`.
+Returns `{ t, tArray, entry, language, setLanguage, checkNow, activatePendingUpdate, loadBundle, ready, pendingUpdate }`.
 
 - `t(key, args?, options?)`, `tArray(key)` and `entry(key)` behave as in the core client.
 - `setLanguage(language)` switches language; it rejects when there is no text for it. Called before the
   SDK has started, it waits for it.
 - `checkNow()` asks the server for a newer release now. It waits for the SDK the same way.
+- `loadBundle(name)` loads one more bundle from the release already held. See `bundles` and `bundleMode` in the [`@tarjim/browser` README](../browser/README.md).
 - `activatePendingUpdate()` shows a downloaded release now and returns `true`, or returns `false` when none is
   waiting. Switching `activateImmediately` on while a release is waiting shows it too.
 - `ready` is `true` once the local text is available.

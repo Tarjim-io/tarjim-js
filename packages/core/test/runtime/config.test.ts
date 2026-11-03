@@ -14,7 +14,7 @@ const BAD_FIELDS: Array<[string, Record<string, unknown>]> = [
   ['an api key that is not a string', { apiKey: 42 }],
   ['a default bundle of the wrong type', { defaultBundle: { type: 'folder', name: 'b1' } }],
   ['a default bundle without a name', { defaultBundle: { type: 'namespace' } }],
-  ['a missing default bundle', { defaultBundle: undefined }],
+  ['a missing default bundle in separate mode', { bundleMode: 'separate', defaultBundle: undefined }],
   ['a missing fallback language', { fallbackLanguage: undefined }],
   ['an empty fallback language', { fallbackLanguage: '' }],
 ];
