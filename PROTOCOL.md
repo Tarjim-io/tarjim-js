@@ -36,8 +36,7 @@ X-Tarjim-Api-Version: 2026-07-29
   `appVersion` is the version of YOUR site or app, not of the client. It must change with every
   release you ship. A release can cover a range of app versions, so this value can decide which
   release you get. **A client with no version sends no `appVersion`** and is served as the newest app.
-  A server may still require it and answer `400 delivery.app_version_required`: on exactly that answer
-  to a request that sent no version, ask again with `appVersion=0.0.0`.
+  A malformed `appVersion` is read the same way, never as an error.
 - Optional identity parameters, all ignored if malformed: `platform` (e.g. `web`), `sdkVersion`,
   `release` (the release id you hold, `0` for none), `language` (the locale you serve), `osVersion`,
   `appBuild`. Send `installId` only with a stored per-browser identifier, and only where your consent
@@ -69,10 +68,9 @@ The body of an error is `application/problem+json` with a `code`.
 
 | status · `code` | meaning | what to do |
 |---|---|---|
-| 400 `delivery.app_version_required` | `appVersion` missing or malformed | ask once more with `0.0.0` if you sent none; otherwise a configuration error. Fix the client. |
 | 401 `unauthorized` | key missing, malformed or revoked | configuration error |
-| 403 `delivery.apikey_project_mismatch`, `forbidden` | the key belongs to another project, or may not read delivery | configuration error |
-| 404 `delivery.distribution_not_found`, `delivery.track_not_found`, `delivery.stage_not_found` | the URL or the binding names something that does not exist, or the key belongs to another distribution | configuration error |
+| 403 `forbidden` | the key may not read delivery | configuration error |
+| 404 `delivery.distribution_not_found`, `delivery.stage_not_found` | the URL or the binding names something that does not exist, or the key belongs to another distribution | configuration error |
 | 404 `delivery.stage_unreleased` | nothing released to this stage, or nothing for this `appVersion`, yet | normal. Keep what you hold. |
 | 404 `not-found` | no such project | configuration error |
 | 429 | throttled | keep what you hold; wait at least `Retry-After` if present |

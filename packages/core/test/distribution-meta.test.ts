@@ -90,38 +90,18 @@ describe('appVersion on the wire', () => {
   });
 });
 
-describe('a server that still requires appVersion', () => {
-  it('is asked once more with 0.0.0, and later requests send it from the start', async () => {
+describe('a client with no version', () => {
+  it('sends no appVersion, and surfaces a 400 delivery.app_version_required as a configuration failure without asking again', async () => {
     const urls: string[] = [];
-    const meta = goodMeta();
     const fetchFn = vi.fn(async (url: string) => {
       urls.push(url);
-      return urls.length === 1 ? problem(400, 'delivery.app_version_required') : respond(200, meta);
+      return problem(400, 'delivery.app_version_required');
     });
-    const client = clientFor(fetchFn, { appVersion: undefined as unknown as string });
-
-    expect((await client.fetchMeta({})).kind).toBe('received');
-    await client.fetchMeta({});
-
-    expect(urls.map((url) => queryOf(url)['appVersion'])).toEqual([undefined, '0.0.0', '0.0.0']);
-  });
-
-  it('is not asked again for any other 400', async () => {
-    const fetchFn = vi.fn(async () => problem(400, 'delivery.something_else'));
 
     const outcome = await clientFor(fetchFn, { appVersion: undefined as unknown as string }).fetchMeta({});
 
-    expect(outcome).toEqual({ kind: 'configuration', status: 400, code: 'delivery.something_else' });
-    expect(fetchFn).toHaveBeenCalledTimes(1);
-  });
-
-  it('is not asked again when a version was already sent', async () => {
-    const fetchFn = vi.fn(async () => problem(400, 'delivery.app_version_required'));
-
-    const outcome = await clientFor(fetchFn).fetchMeta({});
-
-    expect(outcome.kind).toBe('configuration');
-    expect(fetchFn).toHaveBeenCalledTimes(1);
+    expect(outcome).toEqual({ kind: 'configuration', status: 400, code: 'delivery.app_version_required' });
+    expect(urls.map((url) => queryOf(url)['appVersion'])).toEqual([undefined]);
   });
 });
 

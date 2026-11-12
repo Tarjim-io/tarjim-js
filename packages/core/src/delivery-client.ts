@@ -28,10 +28,9 @@ interface Answer {
 type Failure = Exclude<ManifestOutcome | SliceOutcome, { kind: 'verified' | 'checksumMismatch' | 'unreadable' | 'hashMismatch' | 'sizeMismatch' }>;
 
 const QUERY = /^[A-Za-z0-9\-._~!$&'()*+,;=:@/?%]+$/;
-const UNRELEASED = ['delivery.stage_unreleased', 'delivery.track_unreleased', 'delivery.not_published'];
+const UNRELEASED = ['delivery.stage_unreleased'];
 const CONFIGURATION = [400, 401, 403, 404];
 const STALE_SIGNATURE = [403, 404, 503];
-const VERSION_REQUIRED = 'delivery.app_version_required';
 const META_LIMIT = 1024 * 1024;
 const MANIFEST_LIMIT = 8 * 1024 * 1024;
 
@@ -67,7 +66,7 @@ export function mayBeStaleSignature(outcome: ManifestOutcome): boolean {
 
 export function createDeliveryClient(options: DeliveryClientOptions): DeliveryClient {
   const { deliveryUrl, apiKey, platform } = options;
-  let appVersion = normaliseAppVersion(options.appVersion);
+  const appVersion = normaliseAppVersion(options.appVersion);
   const timeoutMs = options.timeoutMs ?? 20000;
   const send = options.fetch;
   const keyHeaders = { 'X-Tarjim-Apikey': apiKey, 'X-Tarjim-Api-Version': API_VERSION };
@@ -163,19 +162,6 @@ export function createDeliveryClient(options: DeliveryClientOptions): DeliveryCl
   }
 
   async function fetchMeta(identity: MetaIdentity = {}): Promise<MetaOutcome> {
-    try {
-      const outcome = await readMeta(identity);
-      if (appVersion !== null || outcome.kind !== 'configuration' || outcome.status !== 400 || outcome.code !== VERSION_REQUIRED) return outcome;
-      // Transitional: goes when the API stops requiring appVersion. Until then a client with no version
-      // would get nothing at all, so it is served as the oldest app rather than the newest.
-      appVersion = '0.0.0';
-      return await readMeta(identity);
-    } catch {
-      return { kind: 'network' };
-    }
-  }
-
-  async function readMeta(identity: MetaIdentity): Promise<MetaOutcome> {
     try {
       const answer = await get(metaUrl(identity), { headers: keyHeaders, cache: 'no-store' }, (s) => s === 200 || CONFIGURATION.includes(s), META_LIMIT);
       const { status } = answer;

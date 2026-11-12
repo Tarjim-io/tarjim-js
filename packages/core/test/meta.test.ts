@@ -267,10 +267,16 @@ describe('problem answers', () => {
     expect(outcome).toEqual({ kind: 'unreleased' });
   });
 
-  it.each(['delivery.track_unreleased', 'delivery.not_published'])('is unreleased for %s, ignoring a pollAfter in the body', async (code) => {
-    const outcome = await clientFor(answering(() => problem(404, code, { pollAfter: 300 }))).fetchMeta({});
+  it('is unreleased for delivery.stage_unreleased, ignoring a pollAfter in the body', async () => {
+    const outcome = await clientFor(answering(() => problem(404, 'delivery.stage_unreleased', { pollAfter: 300 }))).fetchMeta({});
 
     expect(outcome).toEqual({ kind: 'unreleased' });
+  });
+
+  it.each(['delivery.track_unreleased', 'delivery.not_published'])('is a configuration failure for the retired code %s', async (code) => {
+    const outcome = await clientFor(answering(() => problem(404, code))).fetchMeta({});
+
+    expect(outcome).toEqual({ kind: 'configuration', status: 404, code });
   });
 
   it('is unreleased when the body carries nothing else', async () => {
@@ -280,7 +286,6 @@ describe('problem answers', () => {
   });
 
   it.each([
-    'errors/meta-400-app-version-required.json',
     'errors/meta-400-validation.json',
     'errors/meta-401-unauthorized.json',
     'errors/meta-403-apikey-project-mismatch.json',
