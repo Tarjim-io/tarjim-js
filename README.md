@@ -17,15 +17,23 @@ Use it two ways:
 
 ### Before you start
 
-To try it, set up delivery in the console:
+To try it, set up delivery on your project's **Delivery** page in the console:
 
-1. Create a track, and a stage in it with **Follow latest** turned on, so the stage serves your
-   latest translations without a manual release.
-2. Create a key bound to that stage.
-3. Copy the delivery URL the console shows for it.
+1. On the **Distributions** tab, choose **New distribution** and pick the bundles it serves. A
+   distribution always has two stages, **Development** and **Production**, each with its own key
+   (`tj_dev_…` and `tj_prod_…`). Only people who can release see the keys.
+2. Choose **Create release**. Once it is built, the release is served to the Development key. To
+   serve it to the Production key, choose **Promote to Production** on that release.
+3. Copy the **Delivery URL** from the distribution's details
+   (`https://<host>/delivery/<public id>/meta`), and the key of the stage you want: the Development
+   key while you build, the Production key on your live site.
 
-Use only a key bound to a stage. A key bound to no track and stage can act as its creator
-everywhere, so the client requests nothing with it and reports `unbound-key`.
+There is nothing to switch on for updates and no polling interval: the client reads the stage's current release
+each time the page loads.
+
+Use only these two keys. Each can do nothing but read its own stage's releases. Never put any other
+Tarjim key in a page: the delivery URL refuses it, and anyone who reads your page could use it with its
+creator's rights.
 
 ### Embed it
 
@@ -37,8 +45,8 @@ everywhere, so the client requests nothing with it and reports `unbound-key`.
 <script src="tarjim-reference.js"></script>
 <script>
   TarjimReference.start({
-    deliveryUrl: 'https://…/delivery/meta', // copied from the console
-    apiKey: 'YOUR-DELIVERY-KEY', // a key bound to a track and stage
+    deliveryUrl: 'https://…/delivery/<public id>/meta', // the Delivery URL from the console
+    apiKey: 'YOUR-DELIVERY-KEY', // the stage's key, tj_dev_… or tj_prod_…
     appVersion: '1.0.0', // your site's release; change it on every deploy
     defaultBundle: { type: 'namespace', name: 'default' },
     language: 'ar',
@@ -59,7 +67,7 @@ page, a network failure), you get a client whose lookups return the key names, p
 | option | |
 |---|---|
 | `deliveryUrl` | required. The delivery URL from the console, used as given. |
-| `apiKey` | required. A delivery key bound to a track and a stage. |
+| `apiKey` | required. The key of the stage to read: `tj_dev_…` (Development) or `tj_prod_…` (Production). |
 | `appVersion` | Your site's version, `MAJOR.MINOR.PATCH`. A `v` prefix or a suffix is stripped. Without one, the site is served as the newest app. |
 | `defaultBundle` | required. `{ type: 'namespace' \| 'custom', name }`, the bundle lookups read by default. |
 | `fallbackLanguage` | required. Served when `language` is not in the release. This client matches the exact tag only, whatever its case: `en-AU` is not served by `en` or `en-GB`. The packages also try related regional forms. |
@@ -79,8 +87,8 @@ To switch language, call `start()` again.
 
 ### What to know before you ship it
 
-- **The key is public.** Anyone can read a key in a web page. Only ever use a delivery key bound to a
-  track and a stage, never any other key.
+- **The key is public.** Anyone can read a key in a web page. Only ever use a distribution's
+  Development or Production key, never any other key.
 - **Values are untrusted text.** Insert them with `textContent`, never `innerHTML`. Copy only the
   `entry().attributes` you expect; never spread them onto an element. `entry()` returns a media key
   only when its URL is `https:`; never put any other value into `href` or `src`.

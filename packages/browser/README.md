@@ -14,15 +14,23 @@ timers and tab coordination.
 
 ## Before you start
 
-To try it, set up delivery in the console:
+To try it, set up delivery on your project's **Delivery** page in the console:
 
-1. Create a track, and a stage in it with **Follow latest** turned on, so the stage serves your
-   latest translations without a manual release.
-2. Create a key bound to that stage.
-3. Copy the delivery URL the console shows for it.
+1. On the **Distributions** tab, choose **New distribution** and pick the bundles it serves. A
+   distribution always has two stages, **Development** and **Production**, each with its own key
+   (`tj_dev_…` and `tj_prod_…`). Only people who can release see the keys.
+2. Choose **Create release**. Once it is built, the release is served to the Development key. To
+   serve it to the Production key, choose **Promote to Production** on that release.
+3. Copy the **Delivery URL** from the distribution's details
+   (`https://<host>/delivery/<public id>/meta`), and the key of the stage you want: the Development
+   key while you build, the Production key on your live site.
 
-Use only a key bound to a stage. A key bound to no track and stage can act as its creator
-everywhere, so the SDK serves only the embedded text with it and reports `unbound-key`.
+There is nothing to switch on for updates and no polling interval: the SDK checks for a newer release when
+the page loads and when the tab comes back into view.
+
+Use only these two keys. Each can do nothing but read its own stage's releases. Never put any other
+Tarjim key in a page: the delivery URL refuses it, and anyone who reads your page could use it with its
+creator's rights.
 
 ## Use it from a script tag
 
@@ -45,8 +53,8 @@ Prefix the output with `sha384-`.
 ```js
 // tarjim-config.js
 Tarjim.start({
-  deliveryUrl: 'https://delivery.example.com/…/delivery/meta', // copied from the console
-  apiKey: 'YOUR-DELIVERY-KEY', // a key bound to a track and a stage; it is public in your page
+  deliveryUrl: 'https://delivery.example.com/delivery/<public id>/meta', // the Delivery URL from the console
+  apiKey: 'YOUR-DELIVERY-KEY', // the stage's key, tj_dev_… or tj_prod_…; it is public in your page
   appVersion: '1.0.0',
   defaultBundle: { type: 'namespace', name: 'default' },
   fallbackLanguage: 'en',
@@ -81,7 +89,7 @@ error classes `TarjimConfigError` and `TarjimLanguageError` (exported as values,
 | option | |
 |---|---|
 | `deliveryUrl` | required. The delivery URL from the console, used as given. |
-| `apiKey` | required. A delivery key bound to a track and a stage. |
+| `apiKey` | required. The key of the stage to read: `tj_dev_…` (Development) or `tj_prod_…` (Production). |
 | `appVersion` | Your site's release, `MAJOR.MINOR.PATCH` (a `v` prefix or a suffix is stripped). Change it on every deploy. Without one, the site is served as the newest app. |
 | `bundleMode` | how `t(key)` reads bundles. `'merged'`: one view of every loaded bundle; when two carry a key, the one listed later in the release wins. `'separate'`: one bundle only, `defaultBundle`. Defaults to `'separate'` when `defaultBundle` is given, else `'merged'`. |
 | `defaultBundle` | required in `'separate'` mode. `{ type: 'namespace' \| 'custom', name }`, the bundle lookups read. Has no effect in `'merged'` mode, and a report says so. |
