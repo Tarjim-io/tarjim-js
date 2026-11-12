@@ -526,7 +526,6 @@
       fetch: fetchFunction,
       report: report,
       keyHeaders: { 'X-Tarjim-Apikey': config.apiKey, 'X-Tarjim-Api-Version': API_VERSION },
-      versionSent: appVersion !== null,
       metaUrl: metaUrl(config.deliveryUrl, appVersion),
     };
 
@@ -575,13 +574,6 @@
       return null;
     }
     var body = parseJson(answer.bytes);
-    // Transitional: goes when the API stops requiring appVersion. Until then a client with no version
-    // would get nothing at all, so it is served as the oldest app rather than the newest.
-    if (answer.status === 400 && !session.versionSent && isObject(body) && body.code === 'delivery.app_version_required') {
-      session.versionSent = true;
-      session.metaUrl = metaUrl(session.config.deliveryUrl, '0.0.0');
-      return readMeta(session, language);
-    }
     if (answer.status !== 200) {
       // A stage with no release yet is a normal state, not a fault.
       if (answer.status === 404 && isObject(body) && body.code === 'delivery.stage_unreleased') return null;

@@ -299,26 +299,17 @@ describe('app version', () => {
     expect(requestsOfKind(release, 'meta')[0].url).toContain('?appVersion=123456789.0.1&');
   });
 
-  it('asks once more with 0.0.0 when the server still requires a version', async () => {
-    const release = basicRelease();
-    release.hook(({ kind, nth }) => {
-      if (kind === 'meta' && nth === 0) return problem(400, 'delivery.app_version_required');
-    });
-    const client = await createHarness(release, { config: { appVersion: undefined } }).start();
-
-    expect(client.t('app.title')).toBe('Tarjim');
-    expect(requestsOfKind(release, 'meta').map(({ url }) => new URL(url).searchParams.get('appVersion'))).toEqual([null, '0.0.0']);
-  });
-
-  it('does not ask again for any other 400, or when a version was sent', async () => {
-    for (const [code, appVersion] of [['delivery.something_else', undefined], ['delivery.app_version_required', '1.0.0']]) {
+  it('sends no appVersion without a version, and never asks again after a 400', async () => {
+    for (const [code, appVersion] of [['delivery.app_version_required', undefined], ['delivery.something_else', undefined], ['delivery.app_version_required', '1.0.0']]) {
       const release = basicRelease();
       release.hook(({ kind }) => {
         if (kind === 'meta') return problem(400, code);
       });
       await createHarness(release, { config: { appVersion } }).start();
 
-      expect(requestsOfKind(release, 'meta')).toHaveLength(1);
+      const metas = requestsOfKind(release, 'meta');
+      expect(metas).toHaveLength(1);
+      expect(new URL(metas[0].url).searchParams.get('appVersion')).toBe(appVersion ?? null);
     }
   });
 

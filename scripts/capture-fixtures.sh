@@ -302,13 +302,6 @@ fi
 redact_ids "$work/e401.body"
 write_envelope 401 "$work/e401.hdr" "$work/e401.body" "$stage/errors/meta-401-unauthorized.json"
 
-status="$(fetch "$delivery_url" "$work/e400.body" "$work/e400.hdr" "$key_headers")"
-if [[ "$status" != "400" ]]; then
-  fail "meta without appVersion answered $status, expected 400"
-fi
-redact_ids "$work/e400.body"
-write_envelope 400 "$work/e400.hdr" "$work/e400.body" "$stage/errors/meta-400-app-version-required.json"
-
 jq -n --arg at "$recorded_at" --arg v "$app_version" --arg mode "$mode" \
   '{recordedAt: $at, deliveryUrl: "https://delivery.example.invalid/t/1/projects/1/delivery/meta", appVersion: $v, mode: $mode}' \
   >"$stage/recording.json"
@@ -329,5 +322,5 @@ mv "$stage" "$out"
 chmod 755 "$out"
 
 echo "Recorded the $mode-mode release into $out:"
-echo "  meta.$mode.json, manifest.json, $object_count objects, errors/meta-401-unauthorized.json, errors/meta-400-app-version-required.json"
+echo "  meta.$mode.json, manifest.json, $object_count objects, errors/meta-401-unauthorized.json"
 echo "Move it to test/fixtures/recorded/<name>/ and run 'pnpm test' (the leak scan) before committing. Nothing was staged in git."

@@ -7,7 +7,7 @@ import { App } from './App.jsx';
 const config = {
   deliveryUrl: import.meta.env.VITE_TARJIM_DELIVERY_URL,
   apiKey: import.meta.env.VITE_TARJIM_APIKEY,
-  appVersion: import.meta.env.VITE_APP_VERSION ?? '0.0.0',
+  appVersion: import.meta.env.VITE_APP_VERSION,
   defaultBundle: { type: 'namespace', name: 'default' },
   fallbackLanguage: 'en',
 };
