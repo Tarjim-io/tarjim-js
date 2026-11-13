@@ -8,8 +8,8 @@ A small Vite + React app on `@tarjim/react`: the provider, a language switcher, 
 1. `pnpm install` at the repository root.
 2. Copy `.env.example` to `.env.local` and fill it in from the console. `.env.local` is ignored by
    git: never commit it, and never put a real key in any other file.
-   - `VITE_TARJIM_DELIVERY_URL`: the delivery URL.
-   - `VITE_TARJIM_APIKEY`: a delivery key bound to a track and a stage. It ends up in the page.
+   - `VITE_TARJIM_DELIVERY_URL`: the distribution's Delivery URL.
+   - `VITE_TARJIM_APIKEY`: the key of the stage to read, `tj_dev_…` or `tj_prod_…`. It ends up in the page.
    - `VITE_APP_VERSION`: your app's `MAJOR.MINOR.PATCH`.
 3. `pnpm --dir examples/react dev`
 
