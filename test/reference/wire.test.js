@@ -44,7 +44,7 @@ describe('the api key', () => {
       basicRelease({ hooks: [({ kind }) => (kind === 'meta' ? new TypeError(`failed ${API_KEY}`) : undefined)] }),
       basicRelease({ hooks: [({ kind }) => (kind === 'object' ? problem(403, 'delivery.forbidden') : undefined)] }),
       basicRelease({ tamper: { manifest: true } }),
-      basicRelease({ metaOverrides: { track: null } }),
+      basicRelease({ metaOverrides: { schemaVersion: 2 } }),
     ];
     let sawAReport = false;
     for (const release of failures) {

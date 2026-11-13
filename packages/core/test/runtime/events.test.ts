@@ -165,22 +165,6 @@ describe('subscribe and getVersion', () => {
     expect(runtime.getVersion()).toBe(version);
   });
 
-  it('move when the key is unbound and the text falls back to the embedded one', async () => {
-    world = makeWorld();
-    const runtime = await world.startActive();
-    const version = runtime.getVersion();
-    let calls = 0;
-    runtime.subscribe(() => calls++);
-    world.server.on('meta', () => respond(200, { ...world.server.current.meta, track: null }));
-
-    world.clock.advance(60);
-    await runtime.checkNow();
-
-    expect(calls).toBeGreaterThan(0);
-    expect(runtime.getVersion()).not.toBe(version);
-    expect(runtime.t('a')).toBe('embedded a');
-  });
-
   it('stop listening when the returned function is called', async () => {
     world = makeWorld();
     const runtime = await world.start();

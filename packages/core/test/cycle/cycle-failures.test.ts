@@ -238,29 +238,6 @@ describe('a refused key or request', () => {
   });
 });
 
-describe('a key bound to nothing', () => {
-  it('reports unbound and reads nothing more', async () => {
-    const w = makeWorld();
-    w.server.on('meta', () => respond(200, { ...w.server.current.meta, track: null }), { times: 1 });
-
-    const result = await w.run();
-    expect(result.outcome).toBe('unbound');
-    expect(result.conditions).toContainEqual({ code: 'unbound-key' });
-    expect(w.server.log.map((request) => request.kind)).toEqual(['meta']);
-    expect((await w.state()).lastCheck).toBe(w.clock.now());
-  });
-
-  it('keeps what is held', async () => {
-    const w = await installed();
-    const held = (await w.state()).active!;
-    w.server.on('meta', () => respond(200, { ...w.server.current.meta, track: null }), { times: 1 });
-
-    expect((await w.run()).outcome).toBe('unbound');
-    expect((await w.state()).active).toEqual(held);
-    expect(await w.holds(hashOf(w.server.current, 'b1', 'en'))).toBe(true);
-  });
-});
-
 describe('storage that cannot be used', () => {
   it('fails with a storage condition and sends no request when the store is degraded', async () => {
     const w = makeWorld({ store: new MemoryStore('degraded-store', { degraded: true }) });

@@ -39,7 +39,7 @@ describe('the binding field', () => {
     expect(outcome.kind).toBe('received');
   });
 
-  it('does not call a key unbound when distribution is present beside a null track', async () => {
+  it('accepts distribution beside a null track', async () => {
     const outcome = await clientFor(answering({ ...goodMeta(), distribution: 'mobile-app', track: null })).fetchMeta({});
 
     expect(outcome.kind).toBe('received');
@@ -54,11 +54,6 @@ describe('the binding field', () => {
     expect(outcome.kind).toBe('received');
   });
 
-  it('still stops on the null track a server sends for an unbound key', async () => {
-    const outcome = await clientFor(answering({ ...goodMeta(), track: null })).fetchMeta({});
-
-    expect(outcome).toEqual({ kind: 'unbound' });
-  });
 });
 
 describe('appVersion on the wire', () => {

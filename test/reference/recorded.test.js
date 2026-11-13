@@ -64,11 +64,4 @@ describe('against the recorded release', () => {
     expect(client.t('app.title')).toBe('app.title');
   });
 
-  it('is inactive with an unbound-key report against the unbound recording', async () => {
-    const served = serveRecording(path.join(RECORDED, 'unbound-latest'));
-    const { client, codes } = await startClient(served);
-    expect(client.active).toBe(false);
-    expect(codes()).toEqual(['unbound-key']);
-    expect(requestsOfKind(served, 'manifest')).toHaveLength(0);
-  });
 });

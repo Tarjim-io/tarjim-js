@@ -590,14 +590,6 @@
       session.report('meta-schema', 'The meta document has an unsupported schema version');
       return null;
     }
-    // A server names an unbound key's binding `track: null`. Such a key acts with its creator's rights,
-    // so nothing else is requested. A server that answers an unbound key with 401 never reaches this
-    // branch, and a meta that carries neither name is not this answer.
-    var named = typeof body.distribution === 'string' || typeof body.track === 'string';
-    if (!named && (body.distribution !== undefined || body.track !== undefined)) {
-      session.report('unbound-key', 'The API key is not bound to a track');
-      return null;
-    }
     if (!metaIsComplete(body)) {
       session.report('meta-invalid', 'The meta document is missing fields');
       return null;

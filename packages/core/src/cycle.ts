@@ -11,12 +11,10 @@ export type CycleOutcome =
   | 'noChange'
   | 'downloaded'
   | 'activated'
-  | 'failed'
-  | 'unbound';
+  | 'failed';
 
 /** Something the page owner may need to hear about; the caller decides whether and how often to report it. */
 export type CycleCondition =
-  | { code: 'unbound-key' }
   | { code: 'configuration'; status: number; problemCode?: string }
   | { code: 'meta-schema'; schemaVersion: unknown }
   | { code: 'manifest-schema'; schemaVersion: unknown }
@@ -325,9 +323,6 @@ async function poll(context: CycleContext, state: State): Promise<CycleResult> {
   const answer = await client.fetchMeta(identity);
 
   switch (answer.kind) {
-    case 'unbound':
-      await settle(context);
-      return { outcome: 'unbound', conditions: [{ code: 'unbound-key' }] };
     case 'unreleased':
       await settle(context);
       return none();

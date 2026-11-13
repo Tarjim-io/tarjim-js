@@ -29,14 +29,12 @@ export interface Meta {
   authenticated?: boolean;
   signedQuery?: string;
   distribution?: string;
-  track?: string;
   releaseId: string | number;
   [field: string]: unknown;
 }
 
 export type MetaOutcome =
   | { kind: 'received'; meta: Meta }
-  | { kind: 'unbound' }
   | { kind: 'unreadable' }
   | { kind: 'unreleased' }
   | { kind: 'configuration'; status: number; code?: string }

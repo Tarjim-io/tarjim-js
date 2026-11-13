@@ -126,9 +126,6 @@ const MESSAGES: Record<string, string> = {
   'storage-unavailable': 'Storage unavailable: only the embedded text is served.',
   'embedded-invalid': 'embedded must be an array of slices; ignored.',
   'app-version-normalised': 'appVersion was reduced to major.minor.patch, or dropped if none could be read.',
-  'unbound-key':
-    'This key is not bound to a track and stage, so it can act as its creator everywhere. ' +
-    'Use a key bound to a stage. For the latest translations, turn on Follow latest on that stage.',
   configuration: 'The delivery server refused the request; check the URL and key.',
   'meta-schema': 'The delivery server uses a newer format; the held text is kept.',
   'manifest-schema': 'A release uses a newer manifest format; not installed.',
@@ -406,21 +403,13 @@ export async function createRuntime(given: TarjimConfig, platform: Platform): Pr
   async function apply(result: CycleResult): Promise<void> {
     const { outcome, active, install } = result;
     await reportAll(result);
-    if (outcome === 'unbound') {
-      scheduler?.stop();
-      live = undefined;
-      prepared = undefined;
-      activeInstall = undefined;
-      swap(await load(undefined, current.snapshot.language));
-    } else {
-      if (active) {
-        activeInstall = active;
-        if (swap(await load(active, current.snapshot.language)) && outcome === 'activated') emit('activated');
-      }
-      if (install && install !== active) {
-        await prepare(install);
-        if (outcome === 'downloaded') emit('downloaded');
-      }
+    if (active) {
+      activeInstall = active;
+      if (swap(await load(active, current.snapshot.language)) && outcome === 'activated') emit('activated');
+    }
+    if (install && install !== active) {
+      await prepare(install);
+      if (outcome === 'downloaded') emit('downloaded');
     }
     const answered = outcome === 'failed' ? result.conditions.some(({ code }) => code === 'configuration') : ['noChange', 'downloaded', 'activated'].includes(outcome);
     if (analytics && !installId && store && store.durable !== false && answered) {
@@ -449,7 +438,7 @@ export async function createRuntime(given: TarjimConfig, platform: Platform): Pr
       if (result.outcome === 'busy' && store && !activeInstall) {
         void whenFree(() => store.withLock(async () => undefined), (free) => free === BUSY).then(adopt, () => undefined);
       } else await adopt();
-      return result.outcome === 'activated' ? 'downloaded' : result.outcome === 'unbound' || result.outcome === 'failed' ? 'failed' : result.outcome === 'busy' ? 'notDue' : result.outcome;
+      return result.outcome === 'activated' ? 'downloaded' : result.outcome === 'failed' ? 'failed' : result.outcome === 'busy' ? 'notDue' : result.outcome;
     } catch {
       return 'failed';
     } finally {

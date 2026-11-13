@@ -2,11 +2,12 @@
 #/ DESCRIPTION:
 #/   Records a stage's current release from the delivery routes into the layout the fixture tests
 #/   read (see test/fixtures/README.md): meta.<mode>.json, manifest.json, every object the manifest
-#/   lists, and the answers to a request with an invalid key and one without appVersion. The
+#/   lists, and the answer to a request with an invalid key. The
 #/   manifest is checked against meta.checksum and every object against its manifest hash before
 #/   anything is written, and the hash chain is checked again on the written copy.
-#/   Only meta is rewritten: the host becomes *.invalid, the signature a placeholder, and the
-#/   tenant and project ids 1. The manifest and the objects are kept byte for byte, so record
+#/   Only meta and the error body are rewritten: the host becomes *.invalid, the signature a
+#/   placeholder, the public id a fixed one, and the ids in CDN paths 1. The manifest and the
+#/   objects are kept byte for byte, so record
 #/   only from a project made for fixtures — never from one with real content or users.
 #/   The API key is read from the environment variable TARJIM_APIKEY only; it is never printed,
 #/   written to disk outside a private temporary directory, or passed on a command line.
@@ -16,7 +17,7 @@
 #/   TARJIM_APIKEY=... capture-fixtures.sh --delivery-url <url> --app-version <x.y.z> --out <dir> [--api-version <v>] [--help]
 #/
 #/ SYNOPSIS:
-#/   --delivery-url: the meta URL copied from the console: https://<host>/t/<tenant>/projects/<project>/delivery/meta
+#/   --delivery-url: the Delivery URL copied from the console: https://<host>/delivery/<public id>/meta
 #/                   (http only for localhost and 127.0.0.1)
 #/   --app-version: MAJOR.MINOR.PATCH sent as ?appVersion=
 #/   --out: recording directory to create; must not exist
@@ -110,11 +111,11 @@ if [[ -z "${TARJIM_APIKEY:-}" ]]; then
 fi
 
 # No userinfo, query, fragment or trailing slash: the key must go to the host the operator typed.
-url_path='/t/[0-9]+/projects/[0-9]+/delivery/meta'
+url_path='/delivery/[0-9a-f]{32}/meta'
 https_re="^https://[A-Za-z0-9.-]+(:[0-9]+)?${url_path}\$"
 local_re="^http://(localhost|127\\.0\\.0\\.1)(:[0-9]+)?${url_path}\$"
 if [[ ! "$delivery_url" =~ $https_re && ! "$delivery_url" =~ $local_re ]]; then
-  fail "--delivery-url must be https://<host>/t/<tenant>/projects/<project>/delivery/meta (http only for localhost)"
+  fail "--delivery-url must be https://<host>/delivery/<public id>/meta (http only for localhost)"
 fi
 
 if [[ ! "$app_version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
@@ -268,13 +269,13 @@ while read -r hash file_type; do
   object_count=$((object_count + 1))
 done <<<"$objects"
 
-# meta only: the real host, the live signature and the real tenant and project ids go. Ids are
-# rewritten wherever they appear as path segments, so relative and CDN URLs stay consistent.
-tenant_id="$(sed -E 's#^.*/t/([0-9]+)/projects/.*$#\1#' <<<"$delivery_url")"
-project_id="$(sed -E 's#^.*/projects/([0-9]+)/delivery/meta$#\1#' <<<"$delivery_url")"
-jq -ec --arg t "$tenant_id" --arg p "$project_id" '
+# meta only: the real host, the live signature, the public id and the tenant, project and
+# distribution ids in a CDN path go. Relative references (origin mode) carry no id but a release's.
+public_id="$(sed -E 's#^.*/delivery/([0-9a-f]{32})/meta$#\1#' <<<"$delivery_url")"
+placeholder_id='00000000000000000000000000000001'
+jq -ec --arg pub "$public_id" --arg fixed "$placeholder_id" '
   def redact_host: if test("^[A-Za-z][A-Za-z0-9+.-]*://") then sub("^(?<s>[A-Za-z][A-Za-z0-9+.-]*://)[^/]+"; "\(.s)cdn.example.invalid") else . end;
-  def redact_ids: gsub("/t/\($t)/"; "/t/1/") | gsub("/projects/\($p)/"; "/projects/1/") | gsub("/\($t)/\($p)/"; "/1/1/");
+  def redact_ids: gsub("releases/[0-9]+/[0-9]+/t[0-9]+/"; "releases/1/1/t1/") | gsub($pub; $fixed);
   .manifestUrl |= (redact_host | redact_ids)
   | .slicesBaseUrl |= (redact_host | redact_ids)
   | if has("projectId") then .projectId = 1 else . end
@@ -284,14 +285,18 @@ if grep -qE "Signature=[^R]|Key-Pair-Id=[^R]" "$work/meta.redacted"; then
   fail "the scrubbed meta still carries a signature"
 fi
 # URL layouts vary; one the rewrite does not know must stop the capture, not reach a public fixture.
-if jq -r '.manifestUrl, .slicesBaseUrl' <"$work/meta.redacted" | grep -qE "/(t/)?${tenant_id}/(projects/)?${project_id}/"; then
-  fail "the scrubbed meta still carries the real tenant and project ids"
+real_project_id="$(jq -r '.projectId // "" | tostring' <"$work/meta.body")"
+if grep -q "$public_id" "$work/meta.redacted" ||
+  jq -r '.manifestUrl, .slicesBaseUrl' <"$work/meta.redacted" | grep -E 'releases/[0-9]+/[0-9]+/t[0-9]+/' | grep -qvE 'releases/1/1/t1/' ||
+  { [[ "$real_project_id" =~ ^[0-9]+$ && "$real_project_id" != "1" ]] &&
+    jq -r '.manifestUrl, .slicesBaseUrl' <"$work/meta.redacted" | grep -q "/${real_project_id}/"; }; then
+  fail "the scrubbed meta still carries the real public id or a real id in a URL path"
 fi
 write_envelope 200 "$work/meta.hdr" "$work/meta.redacted" "$stage/meta.$mode.json"
 
-# Error bodies are not hash-chained, so their ids (an `instance` path, say) are rewritten too.
+# Error bodies are not hash-chained, so the public id (in an `instance` path, say) is rewritten too.
 redact_ids() {
-  sed -E -i.bak "s#/t/${tenant_id}/#/t/1/#g; s#/projects/${project_id}/#/projects/1/#g" "$1"
+  sed -E -i.bak "s#${public_id}#${placeholder_id}#g" "$1"
   rm -f "$1.bak"
 }
 
@@ -303,7 +308,8 @@ redact_ids "$work/e401.body"
 write_envelope 401 "$work/e401.hdr" "$work/e401.body" "$stage/errors/meta-401-unauthorized.json"
 
 jq -n --arg at "$recorded_at" --arg v "$app_version" --arg mode "$mode" \
-  '{recordedAt: $at, deliveryUrl: "https://delivery.example.invalid/t/1/projects/1/delivery/meta", appVersion: $v, mode: $mode}' \
+  --arg url "https://delivery.example.invalid/delivery/$placeholder_id/meta" \
+  '{recordedAt: $at, deliveryUrl: $url, appVersion: $v, mode: $mode}' \
   >"$stage/recording.json"
 
 # The chain again, on what will be committed: scrubbed meta -> manifest -> objects.

@@ -184,32 +184,17 @@ describe('a native bundle in the manifest', () => {
   });
 });
 
-describe('unbound key', () => {
-  it('is inactive with a report and no manifest request when the meta has no track', async () => {
-    const unbound = basicRelease({ metaOverrides: { track: null } });
-    const bad = await startClient(unbound);
-    expect(bad.client.active).toBe(false);
-    expect(bad.client.t('app.title')).toBe('app.title');
-    expect(bad.codes()).toEqual(['unbound-key']);
-    expect(requestsOfKind(unbound, 'manifest')).toHaveLength(0);
-    expect(requestsOfKind(unbound, 'object')).toHaveLength(0);
-
-    const bound = basicRelease({ metaOverrides: { track: 'web' } });
-    const good = await startClient(bound);
-    expect(good.client.active).toBe(true);
-    expect(good.client.t('app.title')).toBe('Tarjim');
-    expect(good.codes()).toEqual([]);
-  });
-
+describe('the binding in meta', () => {
   it.each([
+    ['null', null],
     ['a number', 7],
     ['an object', {}],
-  ])('is inactive with a report when the track is %s', async (_, track) => {
-    const unbound = basicRelease({ metaOverrides: { track } });
-    const { client, codes } = await startClient(unbound);
-    expect(client.active).toBe(false);
-    expect(codes()).toEqual(['unbound-key']);
-    expect(requestsOfKind(unbound, 'manifest')).toHaveLength(0);
+  ])('reads a complete meta whose track is %s like any other: the server refuses an unbound key', async (_, track) => {
+    const release = basicRelease({ metaOverrides: { track } });
+    const { client, codes } = await startClient(release);
+    expect(client.active).toBe(true);
+    expect(client.t('app.title')).toBe('Tarjim');
+    expect(codes()).toEqual([]);
   });
 
   it.each([
@@ -221,13 +206,6 @@ describe('unbound key', () => {
     const { client, codes } = await startClient(basicRelease({ metaOverrides }));
     expect(client.active).toBe(true);
     expect(codes()).toEqual([]);
-  });
-
-  it('has no option that lets an unbound key through', async () => {
-    const unbound = basicRelease({ metaOverrides: { track: null } });
-    const { client, codes } = await startClient(unbound, { config: { allowUnboundKey: true } });
-    expect(client.active).toBe(false);
-    expect(codes()).toEqual(['unbound-key']);
   });
 });
 
