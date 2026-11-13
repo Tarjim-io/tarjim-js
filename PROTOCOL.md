@@ -10,8 +10,8 @@ readable file. If you write your own client, read both.
   `https://<host>/delivery/<public id>/meta`. Treat it as opaque.
   Use it exactly as given, never build it from parts, never parse its path, and never add a trailing
   slash.
-- **A delivery key**, bound to one distribution and one stage. (A distribution was called a track;
-  the older name still appears on the wire, see section 2.)
+- **A delivery key**, bound to one distribution and one stage: `tj_dev_…` for Development,
+  `tj_prod_…` for Production. The console shows both on the distribution's page.
 
 > ⚠ **Any key in a web page is public.** Anyone can read it with View Source. The only key to put in a
 > page is a delivery key bound to a distribution and a stage, which can do nothing but read that stage's
@@ -56,7 +56,7 @@ A `200` answer is JSON. The fields a client uses:
 | `manifestUrl`, `slicesBaseUrl` | where the manifest and the slices are (see section 4) |
 | `authenticated` | `true`: origin mode; anything else: CDN mode (section 4) |
 | `signedQuery` | CDN mode only: the query string to append to every object URL |
-| `distribution` (or `track`), `stage` | the binding. Either name may be sent, or neither. `track: null` with no `distribution` means the key is NOT bound, and a web client must stop. |
+| `distribution`, `stage` | the binding: the distribution's name, and `dev` or `prod`. An older server answered an unbound key with `track: null` and no `distribution`; a web client that sees that must stop. |
 | `releaseId` | the release the stage points at |
 
 Other fields are informational, including `pollAfter`, which some servers still send and no client
