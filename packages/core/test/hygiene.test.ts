@@ -85,7 +85,7 @@ describe('key and signature hygiene', () => {
     texts.push(serialise({ results: rawFailures.results }));
 
     expect(kinds).toEqual([
-      'configuration', 'unreleased', 'throttled', 'server', 'configuration', 'unreadable', 'unbound', 'network',
+      'configuration', 'unreleased', 'throttled', 'server', 'configuration', 'unreadable', 'unreadable', 'network',
       'network', 'network', 'received',
     ]);
     expect(texts.length).toBeGreaterThan(15);

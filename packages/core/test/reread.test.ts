@@ -134,7 +134,6 @@ describe('the single re-read of the meta', () => {
     ['a network failure', () => new TypeError('offline')],
     ['a 503', () => respond(503, 'busy')],
     ['a 429', () => respond(429, null)],
-    ['an unbound meta', () => respond(200, { track: null })],
     ['an unreadable meta', () => respond(200, 'nope')],
   ])('keeps the first outcomes when the re-read itself ends in %s', async (_label, answer) => {
     const { release, files, en, metaRequests, objectRequests } = setup();

@@ -170,24 +170,16 @@ describe('a 200 answer', () => {
     expect(outcome.kind).toBe('received');
   });
 
-  it('is unbound for the recorded meta that has no track', async () => {
-    const served = recording('unbound-latest');
-    const outcome = await clientFor(served.fetch, { deliveryUrl: served.deliveryUrl }).fetchMeta({});
-
-    expect(outcome).toEqual({ kind: 'unbound' });
-  });
-
   it.each([
-    ['null', { track: null }],
-    ['a number', { track: 5 }],
-    ['an object', { track: { name: 'web' } }],
-  ])('is unbound when track is %s, and makes no further request', async (_label, patch) => {
-    const meta: Record<string, unknown> = { ...goodMeta(), ...patch };
-    const fetchFn = answering(() => respond(200, meta));
-    const outcome = await clientFor(fetchFn).fetchMeta({});
+    ['null', null],
+    ['a number', 5],
+    ['an object', { name: 'web' }],
+  ])('reads a complete meta whose track is %s beside no distribution as received: the server refuses an unbound key', async (_label, track) => {
+    const meta: Record<string, unknown> = { ...goodMeta(), track };
+    delete meta['distribution'];
+    const outcome = await clientFor(answering(() => respond(200, meta))).fetchMeta({});
 
-    expect(outcome).toEqual({ kind: 'unbound' });
-    expect(fetchFn).toHaveBeenCalledTimes(1);
+    expect(outcome.kind).toBe('received');
   });
 
   it('is received when the meta names neither a track nor a distribution', async () => {
@@ -197,20 +189,6 @@ describe('a 200 answer', () => {
     const outcome = await clientFor(answering(() => respond(200, meta))).fetchMeta({});
 
     expect(outcome.kind).toBe('received');
-  });
-
-  it('is unbound when a track that is not a string stands beside no distribution', async () => {
-    const meta: Record<string, unknown> = { ...goodMeta(), track: null };
-    delete meta['distribution'];
-    const outcome = await clientFor(answering(() => respond(200, meta))).fetchMeta({});
-
-    expect(outcome).toEqual({ kind: 'unbound' });
-  });
-
-  it('decides unbound before it checks the rest of the meta', async () => {
-    const outcome = await clientFor(answering(() => respond(200, { track: null }))).fetchMeta({});
-
-    expect(outcome).toEqual({ kind: 'unbound' });
   });
 
   it.each([

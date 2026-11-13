@@ -15,7 +15,7 @@ readable file. If you write your own client, read both.
 
 > ⚠ **Any key in a web page is public.** Anyone can read it with View Source. The only key to put in a
 > page is a delivery key bound to a distribution and a stage, which can do nothing but read that stage's
-> release. Never put any other key in a page. An unbound key acts with its creator's full rights.
+> release. Never put any other key in a page: the delivery URL refuses it, and it acts with its creator's full rights.
 
 ## 2. Reading `meta`
 
@@ -56,7 +56,7 @@ A `200` answer is JSON. The fields a client uses:
 | `manifestUrl`, `slicesBaseUrl` | where the manifest and the slices are (see section 4) |
 | `authenticated` | `true`: origin mode; anything else: CDN mode (section 4) |
 | `signedQuery` | CDN mode only: the query string to append to every object URL |
-| `distribution`, `stage` | the binding: the distribution's name, and `dev` or `prod`. An older server answered an unbound key with `track: null` and no `distribution`; a web client that sees that must stop. |
+| `distribution`, `stage` | the binding: the distribution's name, and `dev` or `prod`. |
 | `releaseId` | the release the stage points at |
 
 Other fields are informational, including `pollAfter`, which some servers still send and no client

@@ -145,11 +145,6 @@ export function createDeliveryClient(options: DeliveryClientOptions): DeliveryCl
   function decodeMeta(bytes: Uint8Array | undefined): MetaOutcome {
     const m = parseJson(bytes);
     if (!isRecord(m)) return { kind: 'unreadable' };
-    // A server names an unbound key's binding `track: null`. Such a key acts with its creator's rights,
-    // so the client stops. A server that answers an unbound key with 401 never reaches this branch, and
-    // a meta that carries neither name is not this answer.
-    const binding = [m['distribution'], m['track']];
-    if (!binding.some((name) => typeof name === 'string') && binding.some((name) => name !== undefined)) return { kind: 'unbound' };
     const complete =
       typeof m['checksum'] === 'string' &&
       HEX64.test(m['checksum']) &&

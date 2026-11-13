@@ -35,7 +35,7 @@ describe('plain lookups', () => {
   });
 
   it('answers with key names, an empty list and null from a client that is not active', async () => {
-    const { client } = await startClient(basicRelease({ metaOverrides: { track: null } }));
+    const { client } = await startClient(basicRelease({ metaOverrides: { schemaVersion: 2 } }));
     expect(client.active).toBe(false);
     expect(client.t('app.title')).toBe('app.title');
     expect(plainData(client.tArray('app.title'))).toEqual([]);
