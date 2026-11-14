@@ -97,7 +97,7 @@ error classes `TarjimConfigError` and `TarjimLanguageError` (exported as values,
 | `fallbackLanguage` | required. Served when no other language matches the release. |
 | `language` | the language to serve. Without it, the visitor's saved choice, then the browser's languages, then `fallbackLanguage`. |
 | `persistLanguage` | save a language chosen with `setLanguage` even when `language` is set. |
-| `embedded` | slices bundled with your page, used until a release is downloaded and as a last resort. |
+| `embedded` | slices bundled with your page, used until a release is downloaded and as a last resort. Produce them with `tarjim-pull` (see the [`@tarjim/core` README](../core/README.md#producing-embedded-text-tarjim-pull)). |
 | `waitForContent` | milliseconds `start()` may wait for the first downloaded release when nothing is held yet. |
 | `fetch` | the function used for every request. Defaults to the page's `fetch`; pass your own to add a proxy or a test double. |
 | `analytics` | `{ installId: false }` to send no install id (see below). |
