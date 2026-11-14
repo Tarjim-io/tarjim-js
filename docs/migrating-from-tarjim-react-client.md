@@ -17,7 +17,7 @@ const tarjim = await Tarjim.start({
   deliveryUrl, // from the console; it already identifies your project
   apiKey,
   appVersion: '1.0.0', // your site's release
-  defaultBundle: { type: 'namespace', name: 'default' },
+  defaultBundle: { type: 'custom', name: 'web' }, // one of your distribution's bundles
   fallbackLanguage: 'en',
 });
 tarjim.t('app.title');
@@ -27,7 +27,7 @@ tarjim.t('app.title');
 
 | v2 | v3 |
 |---|---|
-| `new TarjimClient({ projectId, tarjimApikey, defaultLanguage, defaultNamespace, supportedLanguages, additionalNamespaces, cachedTarjimData, useSingleInstance, keyCase })` | `Tarjim.start({ deliveryUrl, apiKey, appVersion, defaultBundle, fallbackLanguage, language?, embedded?, … })`. The project is part of `deliveryUrl`. Namespaces become bundles that the track selects, so there is nothing to list in the page. The languages come from the release. Keep the instance `start()` returns in a module if you want one shared instance. |
+| `new TarjimClient({ projectId, tarjimApikey, defaultLanguage, defaultNamespace, supportedLanguages, additionalNamespaces, cachedTarjimData, useSingleInstance, keyCase })` | `Tarjim.start({ deliveryUrl, apiKey, appVersion, defaultBundle, fallbackLanguage, language?, embedded?, … })`. The project is part of `deliveryUrl`. Namespaces are grouped into the custom bundles your distribution serves, chosen in the console, so there is nothing to list in the page; `defaultBundle` names the one lookups read. The languages come from the release. Keep the instance `start()` returns in a module if you want one shared instance. |
 | `__T(key, { namespace, mappings, subkey, skipTid, SEO })`, which returns a string or a `<span data-tid>` | `t(key, args?, { bundle?, namespace? })`, which always returns a string. There is no `<span>`. A value is untrusted text: if it may contain HTML, sanitising and rendering it is up to your page. |
 | `__TS(key)` | `t(key)` |
 | `mappings` with `%%name%%` placeholders | `t(key, { name: 'value' })` fills `{name}`. To keep `%%name%%` while you migrate, start with `legacyPercentPlaceholders: true`; it matches the name case-sensitively, where v2 matched case-insensitively. |
@@ -39,7 +39,6 @@ tarjim.t('app.title');
 | `on('finishedLoadingTranslations')` and `getIsLoadingTranslations()` | `await Tarjim.start()` resolves once the text held in the browser is ready. Add `waitForContent` to wait for the first download on a first visit. `tarjim.on('activated', listener)` tells you when newer text is showing. |
 | `cachedTarjimData`, translations you ship inside your page | `embedded`, a list of slices. Include only what you need; lookups try them in the order given, after any downloaded text. |
 | `data-tid` on every rendered string, used by the browser extension | Removed. `entry(key).id` is the key's id if you want to rebuild an in-context tool. |
-| `keyCase: 'lower'` | Removed. Key names are used exactly as written in Tarjim. |
 
 ## Behaviour
 
