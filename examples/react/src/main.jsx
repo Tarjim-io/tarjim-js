@@ -8,7 +8,7 @@ const config = {
   deliveryUrl: import.meta.env.VITE_TARJIM_DELIVERY_URL,
   apiKey: import.meta.env.VITE_TARJIM_APIKEY,
   appVersion: import.meta.env.VITE_APP_VERSION,
-  defaultBundle: { type: 'namespace', name: 'default' },
+  defaultBundle: { type: 'custom', name: 'web' }, // one of your distribution's bundles
   fallbackLanguage: 'en',
 };
 

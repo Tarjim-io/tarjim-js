@@ -13,8 +13,8 @@ A small Vite + React app on `@tarjim/react`: the provider, a language switcher, 
    - `VITE_APP_VERSION`: your app's `MAJOR.MINOR.PATCH`.
 3. `pnpm --dir examples/react dev`
 
-The app expects the keys `app.title`, `cart.items` (a plural) and `hero.image` (an image) in the
-`default` bundle, with the languages `en` and `ar`. Without a `.env.local` it still builds and runs,
+The app expects the keys `app.title`, `cart.items` (a plural) and `hero.image` (an image) in a custom
+bundle named `web`, with the languages `en` and `ar`. Without a `.env.local` it still builds and runs,
 showing the key names.
 
 `pnpm --dir examples/react build` makes a production build. It needs no network and no built package:

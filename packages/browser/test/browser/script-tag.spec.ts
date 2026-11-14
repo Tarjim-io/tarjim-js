@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { extname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -13,6 +14,26 @@ const ORIGIN = 'https://app.example.invalid';
 const CORS = { 'access-control-allow-origin': '*' };
 
 const ENVELOPE = JSON.parse(readFileSync(`${FIXTURES}meta.cdn.json`, 'utf8')) as { status: number; headers: Record<string, string>; body: string };
+
+// A distribution serves custom bundles and the example reads one, `web`. The recorded English and
+// Arabic slices are served again as that flat custom bundle, with their hashes and the manifest
+// checksum recomputed, so the page still verifies the whole chain.
+const sha256 = (bytes: Buffer) => createHash('sha256').update(bytes).digest('hex');
+const OBJECTS = new Map<string, Buffer>();
+const RECORDED_MANIFEST = JSON.parse(readFileSync(`${FIXTURES}manifest.json`, 'utf8')) as { slices: Record<string, Record<string, unknown>> };
+const CUSTOM_SLICES: Record<string, { json: { hash: string; size: number; transferSize: number } }> = {};
+for (const locale of ['en', 'ar']) {
+  const recorded = RECORDED_MANIFEST.slices['ns180']?.[locale] as { json: { hash: string } };
+  const slice = JSON.parse(readFileSync(`${FIXTURES}objects/${recorded.json.hash}.json`, 'utf8')) as Record<string, unknown>;
+  const bytes = Buffer.from(JSON.stringify({ ...slice, bundle: 'c1' }));
+  const hash = sha256(bytes);
+  OBJECTS.set(hash, bytes);
+  CUSTOM_SLICES[locale] = { json: { hash, size: bytes.length, transferSize: bytes.length } };
+}
+const MANIFEST = Buffer.from(
+  JSON.stringify({ ...RECORDED_MANIFEST, bundles: { c1: { type: 'custom', name: 'web', layout: 'flat' } }, slices: { c1: CUSTOM_SLICES } }),
+);
+const META_BODY = JSON.stringify({ ...(JSON.parse(ENVELOPE.body) as Record<string, unknown>), checksum: sha256(MANIFEST) });
 
 test.beforeAll(() => {
   for (const file of [BUNDLE, VARIANT]) {
@@ -50,16 +71,16 @@ async function serve(page: Page, script: Buffer) {
       });
     }
     seen.meta += 1;
-    return route.fulfill({ status: ENVELOPE.status, headers: { ...ENVELOPE.headers, ...CORS }, body: ENVELOPE.body });
+    return route.fulfill({ status: ENVELOPE.status, headers: { ...ENVELOPE.headers, ...CORS }, body: META_BODY });
   });
 
   await page.route('https://cdn.example.invalid/**', (route) => {
     const { pathname } = new URL(route.request().url());
     seen.objects += 1;
     const hash = /\/slices\/([0-9a-f]{64})\.json$/.exec(pathname)?.[1];
-    const file = pathname.endsWith('/manifest.json') ? `${FIXTURES}manifest.json` : hash ? `${FIXTURES}objects/${hash}.json` : '';
-    if (!file || !existsSync(file)) return route.fulfill({ status: 404, headers: CORS, body: '' });
-    return route.fulfill({ status: 200, headers: { ...CORS, 'content-type': 'application/json' }, body: readFileSync(file) });
+    const body = pathname.endsWith('/manifest.json') ? MANIFEST : hash ? OBJECTS.get(hash) : undefined;
+    if (!body) return route.fulfill({ status: 404, headers: CORS, body: '' });
+    return route.fulfill({ status: 200, headers: { ...CORS, 'content-type': 'application/json' }, body });
   });
 
   return seen;

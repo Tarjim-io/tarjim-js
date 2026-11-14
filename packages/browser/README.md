@@ -56,7 +56,7 @@ Tarjim.start({
   deliveryUrl: 'https://delivery.example.com/delivery/<public id>/meta', // the Delivery URL from the console
   apiKey: 'YOUR-DELIVERY-KEY', // the stage's key, tj_dev_… or tj_prod_…; it is public in your page
   appVersion: '1.0.0',
-  defaultBundle: { type: 'namespace', name: 'default' },
+  defaultBundle: { type: 'custom', name: 'web' }, // one of your distribution's bundles
   fallbackLanguage: 'en',
   waitForContent: 3000,
 }).then(function (tarjim) {
@@ -92,7 +92,7 @@ error classes `TarjimConfigError` and `TarjimLanguageError` (exported as values,
 | `apiKey` | required. The key of the stage to read: `tj_dev_…` (Development) or `tj_prod_…` (Production). |
 | `appVersion` | Your site's release, `MAJOR.MINOR.PATCH` (a `v` prefix or a suffix is stripped). Change it on every deploy. Without one, the site is served as the newest app. |
 | `bundleMode` | how `t(key)` reads bundles. `'merged'`: one view of every loaded bundle; when two carry a key, the one listed later in the release wins. `'separate'`: one bundle only, `defaultBundle`. Defaults to `'separate'` when `defaultBundle` is given, else `'merged'`. |
-| `defaultBundle` | required in `'separate'` mode. `{ type: 'namespace' \| 'custom', name }`, the bundle lookups read. Has no effect in `'merged'` mode, and a report says so. |
+| `defaultBundle` | required in `'separate'` mode. `{ type: 'custom', name }`, the bundle lookups read: one of the custom bundles your distribution serves, named as in the console. Has no effect in `'merged'` mode, and a report says so. |
 | `bundles` | the names of the bundles to load. Without it, every bundle in the release. It can only narrow what the release serves; a name the release lacks loads nothing, and a report (`bundle-unknown`) says so. |
 | `fallbackLanguage` | required. Served when no other language matches the release. |
 | `language` | the language to serve. Without it, the visitor's saved choice, then the browser's languages, then `fallbackLanguage`. |
