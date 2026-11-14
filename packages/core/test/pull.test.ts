@@ -39,6 +39,10 @@ describe('pull', () => {
     expect(result.slices.map((s) => `${s.bundle}/${s.locale}`)).toEqual(['c3/ar', 'c3/en', 'c12/en', 'c12/fr']);
     expect(result.releaseId).toBe(String(release.meta['releaseId']));
     expect(result.checksum).toBe(release.meta['checksum']);
+    expect(result.contents).toEqual([
+      { bundle: 'spa', locales: ['ar', 'en'] },
+      { bundle: 'emails', locales: ['en', 'fr'] },
+    ]);
   });
 
   it('keeps each slice exactly as the server sent it', async () => {

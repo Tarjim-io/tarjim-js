@@ -57,7 +57,7 @@ function parse(argv: readonly string[]): Parsed | string {
   return parsed;
 }
 
-/** Runs the command; returns the exit code. Prints one line on stdout on success, one on stderr on failure. */
+/** Runs the command; returns the exit code. Prints one line on stdout on success (the release and what was written), one on stderr on failure. */
 export async function runPullCli(argv: readonly string[], env: Readonly<Record<string, string | undefined>>, io: PullIo): Promise<number> {
   const failed = (reason: string): number => {
     io.stderr(`tarjim-pull: ${reason}`);
@@ -89,6 +89,7 @@ export async function runPullCli(argv: readonly string[], env: Readonly<Record<s
   } catch {
     return failed(`could not write ${parsed.out}`);
   }
-  io.stdout(`release ${result.releaseId} checksum ${result.checksum}`);
+  const written = result.contents.map(({ bundle, locales }) => `${bundle}: ${locales.join(', ')}`).join('; ');
+  io.stdout(`release ${result.releaseId} checksum ${result.checksum} · ${written}`);
   return 0;
 }

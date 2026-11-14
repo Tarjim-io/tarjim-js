@@ -49,7 +49,7 @@ describe('tarjim-pull', () => {
     expect(code).toBe(0);
     const written = JSON.parse(t.files.get('snapshot.json')!) as { bundle: string; locale: string }[];
     expect(written.map((s) => `${s.bundle}/${s.locale}`)).toEqual(['c3/ar', 'c3/en']);
-    expect(t.out).toEqual([`release ${String(release.meta['releaseId'])} checksum ${String(release.meta['checksum'])}`]);
+    expect(t.out).toEqual([`release ${String(release.meta['releaseId'])} checksum ${String(release.meta['checksum'])} · spa: ar, en`]);
     expect(t.err).toEqual([]);
   });
 

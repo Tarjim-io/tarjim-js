@@ -17,7 +17,15 @@ export interface PullOptions {
   fetch: FetchFunction;
 }
 
-export type PullResult = { ok: true; slices: Slice[]; releaseId: string; checksum: string } | { ok: false; reason: string };
+/** What a pull wrote, per bundle name, in the order of `slices`. */
+export interface PulledBundle {
+  bundle: string;
+  locales: string[];
+}
+
+export type PullResult =
+  | { ok: true; slices: Slice[]; contents: PulledBundle[]; releaseId: string; checksum: string }
+  | { ok: false; reason: string };
 
 const fail = (reason: string): PullResult => ({ ok: false, reason });
 
@@ -111,7 +119,14 @@ export async function pull(options: PullOptions): Promise<PullResult> {
       if (value === null || typeof value !== 'object' || Array.isArray(value)) return fail(`the slice ${bundle}/${locale} is not readable`);
       pulled.push(value as Slice);
     }
-    return { ok: true, slices: pulled, releaseId: String(meta.meta.releaseId), checksum: meta.meta.checksum };
+    const contents: PulledBundle[] = [];
+    for (const { bundle, locale } of chosen) {
+      const name = bundles[bundle]!.name;
+      const last = contents[contents.length - 1];
+      if (last?.bundle === name) last.locales.push(locale);
+      else contents.push({ bundle: name, locales: [locale] });
+    }
+    return { ok: true, slices: pulled, contents, releaseId: String(meta.meta.releaseId), checksum: meta.meta.checksum };
   } catch {
     return fail('the download stopped unexpectedly');
   }

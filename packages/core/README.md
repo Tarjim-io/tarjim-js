@@ -59,7 +59,8 @@ Tarjim.start({ /* … */ defaultBundle: { type: 'custom', name: 'spa' }, embedde
 - **It always takes the stage's current release.** There is no way to pin an older one.
 - **The output diffs cleanly:** slices are sorted by bundle id, then locale, and kept exactly as the
   server sent them. A second pull of the same release writes the same bytes.
-- **On success** it prints `release <id> checksum <checksum>` and exits 0.
+- **On success** it prints one line naming the release and what it wrote, such as
+  `release 5 checksum 4fb6… · spa: ar, en`, and exits 0. Check that line when you expected fewer locales.
 - **On any failure it writes nothing and exits 1**, with one line on stderr: a refused key or URL, a
   stage with nothing released, a manifest or slice that fails its check, a bundle or locale the
   release does not have, or a network error. An existing file is left as it was.
