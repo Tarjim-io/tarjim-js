@@ -107,8 +107,11 @@ error classes `TarjimConfigError` and `TarjimLanguageError` (exported as values,
 | `onReport`, `debug` | `onReport` is called once per problem (its code and details) per day, and the SDK remembers that across reloads; `debug` logs reports at info level instead of debug. |
 
 `start()` resolves once the text held in the browser is ready, which is usually immediately. Before
-the first release lands, lookups return the `embedded` text, else the key name. Before `start()`
-resolves there is no instance, so show your embedded text or a placeholder until it does.
+the first release lands, lookups return the `embedded` text, else the key name. If `language` asks for
+a language nothing embedded has, the embedded `fallbackLanguage` text is served instead, whole, and
+`language` reports the fallback; once a release with the language asked for is in, it switches to it
+and emits `languageChanged`. Calling `setLanguage` meanwhile replaces the language asked for. Before
+`start()` resolves there is no instance, so show your embedded text or a placeholder until it does.
 
 ## The instance
 

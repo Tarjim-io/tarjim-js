@@ -324,7 +324,15 @@ export async function createRuntime(given: TarjimConfig, platform: Platform): Pr
     universe: localesOf(activeInstall),
     manifestHeld: activeInstall !== undefined,
   }).locale;
-  let current = await load(activeInstall, target, previous);
+  // Before any release is held a page's own language is kept, so the first release fetches its text.
+  // While nothing in that language exists, the embedded fallback language is served instead, whole and
+  // under its own name, rather than key names (PROTOCOL.md section 6: the fallback language, then the
+  // bundled text). Null once the language asked for has text.
+  let standIn: string | null =
+    !activeInstall && typeof fallbackLanguage === 'string' && matchLocale(target, localesOf(undefined)) === null
+      ? matchLocale(fallbackLanguage, localesOf(undefined))
+      : null;
+  let current = await load(activeInstall, standIn ?? target, previous);
   // Written after the first check, so a reader who sees the file owed also sees that check's backoff.
   let toOwe = store && activeInstall ? current.missing : [];
   async function markOwed(): Promise<void> {
@@ -405,7 +413,13 @@ export async function createRuntime(given: TarjimConfig, platform: Platform): Pr
     await reportAll(result);
     if (active) {
       activeInstall = active;
-      if (swap(await load(active, current.snapshot.language)) && outcome === 'activated') emit('activated');
+      // The release fetched the language asked for; once it has that text, the stand-in gives way.
+      const asked = standIn === null ? null : matchLocale(target, localesOf(active));
+      const arrived = asked !== null && !lacks(active, asked);
+      if (arrived) standIn = null;
+      const shown = current.snapshot.language;
+      if (swap(await load(active, arrived ? asked : shown)) && outcome === 'activated') emit('activated');
+      if (current.snapshot.language !== shown) emit('languageChanged');
     }
     if (install && install !== active) {
       await prepare(install);
@@ -514,7 +528,14 @@ export async function createRuntime(given: TarjimConfig, platform: Platform): Pr
     }
     const match = typeof language === 'string' ? matchLocale(language, localesOf(activeInstall), fallbackLanguage) : null;
     if (match === null) throw new TarjimLanguageError('There is no text for that language.');
-    if (match === current.snapshot.language) return;
+    if (match === current.snapshot.language) {
+      // Choosing the language that is standing in makes it the page's own: a release must not replace it.
+      if (standIn !== null) {
+        standIn = null;
+        target = match;
+      }
+      return;
+    }
     const before = target;
     target = match;
     try {
@@ -544,6 +565,7 @@ export async function createRuntime(given: TarjimConfig, platform: Platform): Pr
       }
       if (store && persist) await store.updateState((s) => ({ ...s, languageOverride: match }));
       swap(next);
+      standIn = null;
       await prepare(state.pending);
       emit('languageChanged');
     } catch (error) {
