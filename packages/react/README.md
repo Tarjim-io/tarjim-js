@@ -40,7 +40,7 @@ const config: TarjimConfig = {
   deliveryUrl: 'https://…/delivery/<public id>/meta', // the Delivery URL from the console
   apiKey: 'YOUR-DELIVERY-KEY', // the stage's key, tj_dev_… or tj_prod_…
   appVersion: '1.0.0',
-  defaultBundle: { type: 'namespace', name: 'default' },
+  defaultBundle: { type: 'custom', name: 'web' }, // one of your distribution's bundles
   fallbackLanguage: 'en',
 };
 

@@ -48,7 +48,7 @@ creator's rights.
     deliveryUrl: 'https://…/delivery/<public id>/meta', // the Delivery URL from the console
     apiKey: 'YOUR-DELIVERY-KEY', // the stage's key, tj_dev_… or tj_prod_…
     appVersion: '1.0.0', // your site's release; change it on every deploy
-    defaultBundle: { type: 'namespace', name: 'default' },
+    defaultBundle: { type: 'custom', name: 'web' }, // one of your distribution's bundles
     language: 'ar',
     fallbackLanguage: 'en',
   }).then(function (tarjim) {
@@ -69,7 +69,7 @@ page, a network failure), you get a client whose lookups return the key names, p
 | `deliveryUrl` | required. The delivery URL from the console, used as given. |
 | `apiKey` | required. The key of the stage to read: `tj_dev_…` (Development) or `tj_prod_…` (Production). |
 | `appVersion` | Your site's version, `MAJOR.MINOR.PATCH`. A `v` prefix or a suffix is stripped. Without one, the site is served as the newest app. |
-| `defaultBundle` | required. `{ type: 'namespace' \| 'custom', name }`, the bundle lookups read by default. |
+| `defaultBundle` | required. `{ type: 'custom', name }`, the bundle lookups read by default: one of the custom bundles your distribution serves, named as in the console. |
 | `fallbackLanguage` | required. Served when `language` is not in the release. This client matches the exact tag only, whatever its case: `en-AU` is not served by `en` or `en-GB`. The packages also try related regional forms. |
 | `language` | the locale to serve; defaults to `fallbackLanguage` |
 | `legacyPercentPlaceholders` | `true` to substitute `%%name%%` placeholders from named arguments |

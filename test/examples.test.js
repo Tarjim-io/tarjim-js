@@ -2,10 +2,18 @@ import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it, vi } from 'vitest';
-import { serveRecording } from './helpers/fake-delivery.js';
+import { buildRelease } from './helpers/fake-delivery.js';
 
 const read = (path) => readFileSync(fileURLToPath(new URL(path, import.meta.url)), 'utf8');
-const RECORDING = fileURLToPath(new URL('./fixtures/recorded/release-1', import.meta.url));
+const RECORDED_OBJECTS = './fixtures/recorded/release-1/objects/';
+const EN = '24fc13c433562806e0a880340583f0b20b3fef792c58a3ebc322c8129c2413c8';
+const AR = 'b3ffc5df57e7ac4ebed7ba158ab8389bd768a03634c29df171a5613904792eae';
+
+// A distribution serves custom bundles, so the examples read one: a flat custom bundle named `web`
+// carrying the recorded English and Arabic text, rebuilt under the bundle id `c1`.
+function recordedSlice(hash) {
+  return { ...JSON.parse(read(`${RECORDED_OBJECTS}${hash}.json`)), bundle: 'c1' };
+}
 
 function fakePage(lang, keys) {
   const elements = keys.map(([key, count]) => ({
@@ -21,7 +29,11 @@ function fakePage(lang, keys) {
 // Runs the page's two scripts, in order, in one browser-like context, with only `fetch` replaced.
 async function runExample(scripts, lang, keys) {
   const deliveryUrl = 'https://delivery.example.com/delivery/0123456789abcdef0123456789abcdef/meta';
-  const server = serveRecording(RECORDING, { deliveryUrl });
+  const server = buildRelease({
+    deliveryUrl,
+    bundles: { c1: { type: 'custom', name: 'web', layout: 'flat' } },
+    slices: { c1: { en: recordedSlice(EN), ar: recordedSlice(AR) } },
+  });
   const page = fakePage(lang, keys);
   const context = vm.createContext({
     document: page.document,
