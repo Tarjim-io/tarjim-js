@@ -11,7 +11,10 @@ export interface PullOptions {
   apiKey: string;
   /** Bundle names, as the console shows them. Absent or empty: every bundle in the release. */
   bundles?: readonly string[];
-  /** Locale tags, matched whatever their case. Absent or empty: every locale of each chosen bundle. */
+  /**
+   * Locale tags, matched whatever their case. Absent or empty: every locale of each chosen bundle.
+   * A bundle that lacks one is pulled without it (a gap); a tag no chosen bundle holds fails the pull.
+   */
   locales?: readonly string[];
   appVersion?: string;
   fetch: FetchFunction;
@@ -23,8 +26,14 @@ export interface PulledBundle {
   locales: string[];
 }
 
+/** A listed locale that one chosen bundle does not hold; it is left out of that bundle. */
+export interface PullGap {
+  bundle: string;
+  locale: string;
+}
+
 export type PullResult =
-  | { ok: true; slices: Slice[]; contents: PulledBundle[]; releaseId: string; checksum: string }
+  | { ok: true; slices: Slice[]; contents: PulledBundle[]; gaps: PullGap[]; releaseId: string; checksum: string }
   | { ok: false; reason: string };
 
 const fail = (reason: string): PullResult => ({ ok: false, reason });
@@ -100,13 +109,23 @@ export async function pull(options: PullOptions): Promise<PullResult> {
 
     const wantedLocales = options.locales?.length ? options.locales : undefined;
     const chosen: { bundle: string; locale: string; file: SliceFile }[] = [];
-    for (const id of bundleIds) {
+    const gaps: PullGap[] = [];
+    const held = new Set<string>();
+    for (const id of [...bundleIds].sort(compareBundleIds)) {
       const byLocale = slices[id] ?? {};
       for (const tag of wantedLocales ?? Object.keys(byLocale)) {
+        // The release's spelling of the locale is kept; the tag only has to match it whatever its case.
         const locale = Object.keys(byLocale).find((name) => localeKey(name) === localeKey(tag));
-        if (locale === undefined) return fail(`locale "${tag}" is not in bundle "${bundles[id]!.name}"`);
+        if (locale === undefined) {
+          gaps.push({ bundle: bundles[id]!.name, locale: tag });
+          continue;
+        }
+        held.add(localeKey(tag));
         chosen.push({ bundle: id, locale, file: byLocale[locale]! });
       }
+    }
+    for (const tag of wantedLocales ?? []) {
+      if (!held.has(localeKey(tag))) return fail(`locale "${tag}" is in none of the chosen bundles`);
     }
     chosen.sort((a, b) => compareBundleIds(a.bundle, b.bundle) || (a.locale < b.locale ? -1 : a.locale > b.locale ? 1 : 0));
 
@@ -126,7 +145,7 @@ export async function pull(options: PullOptions): Promise<PullResult> {
       if (last?.bundle === name) last.locales.push(locale);
       else contents.push({ bundle: name, locales: [locale] });
     }
-    return { ok: true, slices: pulled, contents, releaseId: String(meta.meta.releaseId), checksum: meta.meta.checksum };
+    return { ok: true, slices: pulled, contents, gaps, releaseId: String(meta.meta.releaseId), checksum: meta.meta.checksum };
   } catch {
     return fail('the download stopped unexpectedly');
   }

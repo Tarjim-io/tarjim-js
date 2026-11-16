@@ -89,6 +89,31 @@ describe('tarjim-pull', () => {
     expect(release.requests[0]!.url).toContain('appVersion=3.0.0');
   });
 
+  it('writes what the bundles hold and names each missing locale on stderr, exiting 0', async () => {
+    const release = buildRelease({
+      bundles: { c3: { type: 'custom', name: 'spa', layout: 'flat' }, c4: { type: 'custom', name: 'checkout', layout: 'flat' } },
+      slices: {
+        c3: {
+          en: { schemaVersion: 1, bundle: 'c3', locale: 'en', keys: { a: leaf('1', 'A') } },
+          fr: { schemaVersion: 1, bundle: 'c3', locale: 'fr', keys: { a: leaf('1', 'Un') } },
+        },
+        c4: { en: { schemaVersion: 1, bundle: 'c4', locale: 'en', keys: { b: leaf('2', 'B') } } },
+      },
+    });
+    const t = io(release);
+
+    const code = await runPullCli(['--delivery-url', DELIVERY_URL, '--locale', 'en', '--locale', 'fr', '--out', 'a.json'], ENV, t.io);
+
+    expect(code).toBe(0);
+    expect((JSON.parse(t.files.get('a.json')!) as { bundle: string; locale: string }[]).map((s) => `${s.bundle}/${s.locale}`)).toEqual([
+      'c3/en',
+      'c3/fr',
+      'c4/en',
+    ]);
+    expect(t.err).toEqual(['tarjim-pull: bundle "checkout" has no "fr"']);
+    expect(t.out).toHaveLength(1);
+  });
+
   describe('writes nothing and exits 1 with one line on stderr', () => {
     const cases: [string, string[], Record<string, string>, Record<string, unknown>, RegExp][] = [
       ['no key in the environment', ['--delivery-url', DELIVERY_URL, '--out', 'a.json'], {}, {}, /TARJIM_APIKEY/],
@@ -99,6 +124,7 @@ describe('tarjim-pull', () => {
       ['a stage with nothing released', ['--delivery-url', DELIVERY_URL, '--out', 'a.json'], ENV, { hooks: [({ kind }: { kind: string }) => (kind === 'meta' ? problem(404, 'delivery.stage_unreleased') : undefined)] }, /no release/],
       ['a slice that fails its hash', ['--delivery-url', DELIVERY_URL, '--out', 'a.json'], ENV, { tamper: { slices: { 'c3/en': 'hash' } } }, /hash/],
       ['an unknown bundle', ['--delivery-url', DELIVERY_URL, '--bundle', 'web', '--out', 'a.json'], ENV, {}, /bundle "web"/],
+      ['a locale no chosen bundle has', ['--delivery-url', DELIVERY_URL, '--locale', 'en', '--locale', 'de', '--out', 'a.json'], ENV, {}, /locale "de"/],
     ];
     it.each(cases)('for %s', async (_label, argv, env, options, reason) => {
       const t = io(spaRelease(options));

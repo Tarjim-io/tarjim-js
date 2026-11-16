@@ -17,7 +17,8 @@ them to <file> as one JSON array to pass as \`embedded\`.
   --delivery-url <url>   the distribution's Delivery URL (or set TARJIM_DELIVERY_URL)
   --out <file>           where to write the JSON array
   --bundle <name>        a bundle to include; repeat for more (default: every bundle)
-  --locale <tag>         a locale to include; repeat for more (default: every locale)
+  --locale <tag>         a locale to include; repeat for more (default: every locale).
+                         A bundle without it is written without it, named on stderr.
   --app-version <x.y.z>  the app version to ask for (default: the newest app)
   --help                 print this message
 
@@ -89,6 +90,7 @@ export async function runPullCli(argv: readonly string[], env: Readonly<Record<s
   } catch {
     return failed(`could not write ${parsed.out}`);
   }
+  for (const { bundle, locale } of result.gaps) io.stderr(`tarjim-pull: bundle "${bundle}" has no "${locale}"`);
   const written = result.contents.map(({ bundle, locales }) => `${bundle}: ${locales.join(', ')}`).join('; ');
   io.stdout(`release ${result.releaseId} checksum ${result.checksum} · ${written}`);
   return 0;

@@ -58,6 +58,25 @@ describe('pull', () => {
     expect(result.ok && result.slices.map((s) => `${s.bundle}/${s.locale}`)).toEqual(['c3/en', 'c12/en']);
   });
 
+  it('leaves out a listed locale that one chosen bundle lacks, and names the gap, when another chosen bundle has it', async () => {
+    const result = await run(twoBundles(), { bundles: ['spa', 'emails'], locales: ['fr', 'EN'] });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.slices.map((s) => `${s.bundle}/${s.locale}`)).toEqual(['c3/en', 'c12/en', 'c12/fr']);
+    expect(result.gaps).toEqual([{ bundle: 'spa', locale: 'fr' }]);
+    expect(result.contents).toEqual([
+      { bundle: 'spa', locales: ['en'] },
+      { bundle: 'emails', locales: ['en', 'fr'] },
+    ]);
+  });
+
+  it('reports no gaps without a locale filter', async () => {
+    const result = await run(twoBundles());
+
+    expect(result.ok && result.gaps).toEqual([]);
+  });
+
   it('produces slices that serve the default bundle through embedded before anything is downloaded', async () => {
     const result = await run(twoBundles(), { bundles: ['spa'], locales: ['en'] });
     if (!result.ok) throw new Error(result.reason);
@@ -93,7 +112,8 @@ describe('pull', () => {
       ['a manifest that fails its checksum', () => run(twoBundles({ tamper: { manifest: true } })), /checksum/],
       ['a slice that fails its hash', () => run(twoBundles({ tamper: { slices: { 'c3/en': 'hash' } } })), /hash/],
       ['a bundle the release does not have', () => run(twoBundles(), { bundles: ['nope'] }), /bundle "nope"/],
-      ['a locale a chosen bundle does not have', () => run(twoBundles(), { bundles: ['spa'], locales: ['fr'] }), /locale "fr"/],
+      ['a locale no chosen bundle has', () => run(twoBundles(), { bundles: ['spa'], locales: ['fr'] }), /locale "fr"/],
+      ['a locale no bundle in the release has', () => run(twoBundles(), { locales: ['en', 'de'] }), /locale "de"/],
       ['a network failure', () => pull({ deliveryUrl: DELIVERY_URL, apiKey: API_KEY, fetch: vi.fn(async () => Promise.reject(new TypeError('offline'))) }), /network/],
     ];
     it.each(cases)('for %s', async (_label, attempt, reason) => {

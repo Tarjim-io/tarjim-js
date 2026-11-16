@@ -51,7 +51,7 @@ Tarjim.start({ /* … */ defaultBundle: { type: 'custom', name: 'spa' }, embedde
 | `--delivery-url <url>` | the distribution's Delivery URL. Or set `TARJIM_DELIVERY_URL`. |
 | `--out <file>` | required. The file to write. |
 | `--bundle <name>` | a bundle to include, by its name in the console. Repeat for more. Default: every bundle. |
-| `--locale <tag>` | a locale to include, matched whatever its case. Repeat for more. Default: every locale of each bundle. |
+| `--locale <tag>` | a locale to include, matched whatever its case; the file keeps the release's spelling. Repeat for more. Default: every locale of each bundle. A chosen bundle that lacks a listed locale is written without it. |
 | `--app-version <x.y.z>` | the app version to ask for. Default: none, which is served as the newest app. |
 | `--help` | print the usage. |
 
@@ -61,9 +61,13 @@ Tarjim.start({ /* … */ defaultBundle: { type: 'custom', name: 'spa' }, embedde
   server sent them. A second pull of the same release writes the same bytes.
 - **On success** it prints one line naming the release and what it wrote, such as
   `release 5 checksum 4fb6… · spa: ar, en`, and exits 0. Check that line when you expected fewer locales.
+- **A listed locale that one chosen bundle lacks is not an error.** That bundle is written without it,
+  and one line on stderr names each gap, such as `tarjim-pull: bundle "checkout" has no "fr"`. The
+  exit code is still 0.
 - **On any failure it writes nothing and exits 1**, with one line on stderr: a refused key or URL, a
-  stage with nothing released, a manifest or slice that fails its check, a bundle or locale the
-  release does not have, or a network error. An existing file is left as it was.
+  stage with nothing released, a manifest or slice that fails its check, a bundle the release does
+  not have, a listed locale that none of the chosen bundles has, or a network error. An existing file
+  is left as it was.
 
 ## What to know before you build on it
 
