@@ -11,10 +11,10 @@ afterEach(() => world.stopAll());
 const THREE = { release: { locales: ['en', 'fr', 'de'] } };
 
 describe('choosing the language at start', () => {
-  it('takes the language the page asked for, even before any release is held', async () => {
+  it('takes the language the page asked for before any release is held, when the page embeds text in it', async () => {
     world = makeWorld();
-    const runtime = await world.start({ language: 'de' });
-    expect(runtime.language).toBe('de');
+    const runtime = await world.start({ language: 'fr' });
+    expect(runtime.language).toBe('fr');
   });
 
   it('downloads text for that language and sends it with the check', async () => {
@@ -436,5 +436,65 @@ describe('the language event', () => {
     await settle();
 
     expect(seen).toEqual(['fr:v1 b1 fr', 'de:v1 b1 de']);
+  });
+});
+
+describe('a language the page asks for that has no text anywhere yet', () => {
+  const offline = () => world.server.on('meta', () => new Error('offline'));
+
+  it('serves the embedded fallback language whole, and says so, while no release can be fetched', async () => {
+    world = makeWorld();
+    offline();
+    const runtime = await world.start({ language: 'ar', embedded: [embedded('en')] });
+
+    expect(runtime.language).toBe('en');
+    expect(runtime.t('a')).toBe('embedded a');
+    expect(runtime.t('e')).toBe('embedded e');
+  });
+
+  it('moves to the language asked for once a release that has it is in, and says the language changed', async () => {
+    world = makeWorld({ release: { locales: ['en', 'ar'] } });
+    const runtime = await world.start({ language: 'ar', embedded: [embedded('en')], waitForContent: 0 });
+    const events: string[] = [];
+    runtime.on('languageChanged', (event) => events.push(event.type));
+
+    await until(() => runtime.t('a') === 'v1 b1 ar', 'the Arabic text');
+    expect(runtime.language).toBe('ar');
+    expect(events).toContain('languageChanged');
+  });
+
+  it('keeps the fallback language rather than key names when the release has no text in the language asked for', async () => {
+    world = makeWorld({ release: { locales: ['en'] } });
+    const runtime = await world.start({ language: 'ar', embedded: [embedded('en')], waitForContent: 0 });
+
+    await until(() => world.metaCount() > 0, 'the first check');
+    await settle();
+    expect(runtime.language).toBe('en');
+    expect(runtime.t('a')).not.toBe('a');
+  });
+
+  it('stays on the language the page then chooses, even when a release with the first one arrives', async () => {
+    world = makeWorld({ release: { locales: ['en', 'ar'] } });
+    world.server.on('meta', () => new Error('offline'), { times: 1 });
+    const runtime = await world.start({ language: 'ar', embedded: [embedded('en')], waitForContent: 0 });
+    await until(() => world.metaCount() === 1, 'the failed first check');
+    await settle();
+
+    await runtime.setLanguage('en');
+    // Past the wait the failed first check set.
+    world.clock.advance(7200);
+    world.returnToForeground();
+    await until(() => world.metaCount() === 2, 'the second check');
+    await until(() => runtime.t('a') !== 'embedded a', 'the release text');
+    expect(runtime.language).toBe('en');
+    expect(runtime.t('a')).toBe('v1 b1 en');
+  });
+
+  it('still answers with key names when nothing embedded is in the fallback language either', async () => {
+    world = makeWorld();
+    offline();
+    const runtime = await world.start({ language: 'ar', embedded: [embedded('fr')] });
+
+    expect(runtime.t('a')).toBe('a');
   });
 });
